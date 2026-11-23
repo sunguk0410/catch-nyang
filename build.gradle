@@ -50,5 +50,26 @@ protobuf {
 }
 
 tasks.named('test') {
-	useJUnitPlatform()
+	useJUnitPlatform {
+		excludeTags 'load'
+	}
+}
+
+// 부하 측정 (느림, 기본 빌드에서 제외): ./gradlew loadTest -Dload.rooms=500 -Dload.seconds=20
+tasks.register('loadTest', Test) {
+	description = '방 N개를 실제 웹소켓으로 붙여 tick·지연·트래픽을 측정'
+	group = 'verification'
+	testClassesDirs = sourceSets.test.output.classesDirs
+	classpath = sourceSets.test.runtimeClasspath
+	useJUnitPlatform {
+		includeTags 'load'
+	}
+	maxHeapSize = '2g'
+	// 가상 스레드 pinning 등 진단: -Dload.jfr=파일경로 (JDK 21 의 jdk.tracePinnedThreads 는 JVM 을 멈추게 하는 버그가 있어 JFR 사용)
+	if (System.getProperty('load.jfr')) jvmArgs "-XX:StartFlightRecording=filename=${System.getProperty('load.jfr')},settings=profile"
+	systemProperties System.properties.findAll { it.key.toString().startsWith('load.') }
+	outputs.upToDateWhen { false }
+	testLogging {
+		showStandardStreams = true
+	}
 }

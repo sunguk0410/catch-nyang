@@ -42,6 +42,8 @@ docker compose up -d mysql
 |---|---|---|
 | `GAME_RECONNECT_GRACE_SEC` | 30 | 끊긴 뒤 이 안에 `Reconnect` 안 하면 기권 |
 | `GAME_REMATCH_WINDOW_SEC` | 30 | 판이 끝난 뒤 재대결을 신청·수락할 수 있는 시간 |
+| `GAME_WS_PING_INTERVAL_SEC` | 5 | 클라에서 이만큼 아무것도 안 오면 프로토콜 ping (브라우저가 자동 pong) |
+| `GAME_WS_IDLE_TIMEOUT_SEC` | 15 | 이만큼 아무것도 안 오면 죽은 연결로 보고 끊음 → 재접속 유예 시작 |
 | `GAME_ALLOWED_ORIGINS` | `*` | 웹소켓 허용 Origin (쉼표 구분). **배포 시 프론트 도메인으로** |
 | `GAME_CONFIG_PATH` | `classpath:game-config.json` | 규칙 수치 파일 |
 
@@ -67,6 +69,29 @@ docker compose up -d mysql
    - DB 에는 새 판의 `game_match.rematch_of` = 이전 판 id
 
 정보 차단은 서버에서 함: 감독관은 냥이 자리·확인한 정답·도구를 절대 못 받고, OMR 내용은 검사 중인 학생 것만 받음. 도구 이펙트(`ToolStarted`)는 감독관 시야각(`proctor.fovDeg`)·거리 안일 때만 감.
+
+## 네트워크·성능
+
+- **송신은 절대 안 막힘**: 연결마다 송신 큐 + Tomcat 비동기 송신(`RemoteEndpoint.Async`). 보통은 방 tick 스레드가 NIO 소켓에 바로 non-blocking 으로 쓰고, 소켓 버퍼가 차면 Tomcat 콜백이 이어서 보냄. 느린 클라가 있어도 방 tick·로비 락은 안 막힘 (`ws/Connection.java`)
+- **느린 클라**: 못 보낸 게 256KB 를 넘으면 그 연결만 끊음 → 재접속 유예 → 돌아오면 Snapshot 으로 따라잡음
+- **죽은 연결 감지**: 5초 조용하면 ping, 15초 조용하면 끊음 (반쯤 끊긴 TCP·탭 멈춤). 프론트 작업 불필요
+- **압축(permessage-deflate) 끔**: 40B 짜리 프레임엔 CPU·메모리만 듦. Tomcat 은 빈 확장 목록을 "기본값 전부" 로 해석해서, 요청 헤더를 필터에서 지움
+- **예열**: 서버 시작 시 가짜 판을 돌려 JIT·클래스 로딩을 끝냄 (안 하면 첫 판이 약 0.3초 밀림)
+- 메트릭 (`/actuator/prometheus`): `game.tick.duration`, `game.tick.overrun`, `ws.send.delay`, `ws.rtt`, `ws.connections`, `ws.queued.bytes`, `ws.terminated{reason}`
+
+### 부하 측정
+
+```bash
+./gradlew loadTest -Dload.rooms=1000 -Dload.seconds=15            # 기본 200방
+./gradlew loadTest -Dload.rooms=1000 -Dload.jfr=build/load.jfr     # JFR 녹화 같이
+```
+
+개발 PC (12코어) 결과. 봇 클라도 같은 JVM 에서 돌아서 서버 단독보다 보수적인 수치. 감독관은 계속 움직이고(매 tick 갱신), 냥이는 3초마다 빙의.
+
+| 방 / 연결 | CPU | tick 건너뜀 | 서버 송신 큐 대기 p99 | tick 수신 간격 p99 | 입력→ack p99 | 연결당 하향 |
+|---|---|---|---|---|---|---|
+| 1000 / 2000 | 3.4 코어 | 0 / 30만 | 0.00 ms | 73 ms | 63 ms | 0.8 KB/s |
+| 2000 / 4000 | 6.9 코어 | 0.65% | 0.01 ms | 88 ms | 72 ms | 0.8 KB/s |
 
 ## 진행 상황
 

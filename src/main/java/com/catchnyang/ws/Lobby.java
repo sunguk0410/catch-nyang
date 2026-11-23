@@ -13,10 +13,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
-import org.springframework.web.socket.CloseStatus;
-import org.springframework.web.socket.WebSocketSession;
 
-import java.io.IOException;
 import java.security.SecureRandom;
 import java.time.Instant;
 import java.util.Base64;
@@ -50,7 +47,7 @@ public class Lobby implements MatchEndListener, AutoCloseable {
 
     /** 플레이어 하나. 재접속하면 같은 객체에 새 세션이 붙는다 */
     static final class Player {
-        volatile WebSocketSession session;
+        volatile Connection session;
         String nickname;
         State state = State.IDLE;
         Ticket ticket;
@@ -60,7 +57,7 @@ public class Lobby implements MatchEndListener, AutoCloseable {
         /** 방금 끝난 판의 재대결 (판 종료 뒤 rematch-window 동안만) */
         Rematch rematch;
 
-        Player(WebSocketSession session) {
+        Player(Connection session) {
             this.session = session;
         }
     }
@@ -151,7 +148,7 @@ public class Lobby implements MatchEndListener, AutoCloseable {
     private final ScheduledExecutorService timers =
             Executors.newSingleThreadScheduledExecutor(Thread.ofPlatform().name("reconnect-timer").daemon().factory());
 
-    public Lobby(GameRooms rooms, GameConfig cfg, MessageSender sender,
+    public Lobby(GameRooms rooms, GameConfig cfg, MessageSender sender, Connections connections,
                  @Value("${game.reconnect-grace-sec:30}") double graceSec,
                  @Value("${game.rematch-window-sec:30}") double rematchWindowSec) {
         this.rooms = rooms;
@@ -160,19 +157,22 @@ public class Lobby implements MatchEndListener, AutoCloseable {
         this.graceMs = Math.round(graceSec * 1000);
         this.rematchWindowMs = Math.round(rematchWindowSec * 1000);
         matchmaker.start();
+        // 하트비트·느린 클라로 서버가 먼저 끊은 연결도 일반 끊김과 똑같이 처리 (재접속 유예 시작)
+        connections.onTerminated((c, reason) -> disconnected(c));
     }
 
     // =====================================================================
     // 연결
     // =====================================================================
 
-    void connected(WebSocketSession decorated) {
-        bySession.put(decorated.getId(), new Player(decorated));
+    void connected(Connection c) {
+        bySession.put(c.getId(), new Player(c));
     }
 
-    void disconnected(WebSocketSession raw) {
+    /** 끊김 처리. 같은 연결로 두 번 불려도 안전 (서버가 먼저 끊은 뒤 Tomcat 이 닫힘을 알리는 경우) */
+    void disconnected(Connection c) {
         synchronized (lock) {
-            Player p = bySession.remove(raw.getId());
+            Player p = bySession.remove(c.getId());
             if (p == null) return;  // 재접속으로 이미 다른 세션에 넘어간 옛 연결
             settle(p);
             leaveRematch(p);
@@ -181,7 +181,7 @@ public class Lobby implements MatchEndListener, AutoCloseable {
                 case HOSTING -> closeRoomCode(p);
                 case IN_MATCH -> {
                     Seat seat = p.match.seats.get(p.role);
-                    if (!seat.channel.detach(raw)) return;
+                    if (!seat.channel.detach(c)) return;
                     startGrace(p.match, seat);
                 }
                 case IDLE -> {}
@@ -193,10 +193,10 @@ public class Lobby implements MatchEndListener, AutoCloseable {
     // 메시지
     // =====================================================================
 
-    void handle(WebSocketSession raw, ClientMessage msg) {
-        Player p = bySession.get(raw.getId());
+    void handle(Connection c, ClientMessage msg) {
+        Player p = bySession.get(c.getId());
         if (p == null) return;
-        WebSocketSession s = p.session;
+        Connection s = p.session;
 
         if (ProtoMapper.isGameInput(msg)) {
             gameInput(p, s, msg);
@@ -212,7 +212,7 @@ public class Lobby implements MatchEndListener, AutoCloseable {
             case CANCEL_QUEUE -> cancel(p);
             case CREATE_ROOM -> createRoom(p, msg.getCreateRoom().getNickname());
             case JOIN_ROOM -> joinRoom(p, msg.getJoinRoom().getNickname(), msg.getJoinRoom().getRoomCode());
-            case RECONNECT -> reconnect(p, raw, msg.getReconnect().getSessionToken());
+            case RECONNECT -> reconnect(p, c, msg.getReconnect().getSessionToken());
             case REQUEST_REMATCH -> requestRematch(p);
             case DECLINE_REMATCH -> declineRematch(p);
             default -> sender.error(s, "BAD_MESSAGE", "payload 없음");
@@ -220,12 +220,12 @@ public class Lobby implements MatchEndListener, AutoCloseable {
     }
 
     /** 파싱 실패 등. 이 연결의 (감싼) 세션으로 보내야 다른 스레드 송신과 안 섞임 */
-    void badMessage(WebSocketSession raw, String why) {
-        Player p = bySession.get(raw.getId());
+    void badMessage(Connection c, String why) {
+        Player p = bySession.get(c.getId());
         if (p != null) sender.error(p.session, "BAD_MESSAGE", why);
     }
 
-    private void gameInput(Player p, WebSocketSession s, ClientMessage msg) {
+    private void gameInput(Player p, Connection s, ClientMessage msg) {
         ActiveMatch m = p.match;
         Role role = p.role;
         if (m == null || role == null) {
@@ -435,7 +435,7 @@ public class Lobby implements MatchEndListener, AutoCloseable {
         }
     }
 
-    private void reconnect(Player fresh, WebSocketSession raw, String token) {
+    private void reconnect(Player fresh, Connection conn, String token) {
         synchronized (lock) {
             if (fresh.state != State.IDLE) {
                 sender.error(fresh.session, "BAD_STATE", fresh.state.name());
@@ -448,13 +448,13 @@ public class Lobby implements MatchEndListener, AutoCloseable {
             }
             ActiveMatch m = seat.player.match;
             Player p = seat.player;
-            WebSocketSession old = p.session;
+            Connection old = p.session;
 
             // 옛 연결이 아직 살아 있으면(서버가 끊김을 늦게 알아챈 경우) 넘겨받고 닫는다.
             // bySession 에서 먼저 빼서 그 연결의 disconnected() 가 아무것도 안 하게 함
             if (old != null) bySession.remove(old.getId());
             p.session = fresh.session;
-            bySession.put(raw.getId(), p);
+            bySession.put(conn.getId(), p);
             seat.channel.attach(fresh.session);
             if (seat.grace != null) {
                 seat.grace.cancel(false);
@@ -472,13 +472,7 @@ public class Lobby implements MatchEndListener, AutoCloseable {
                     OpponentConnection.newBuilder().setConnected(true)).build());
             log.info("match {} {} reconnected", m.room.id(), seat.role);
 
-            if (old != null && old.isOpen() && !old.getId().equals(raw.getId())) {
-                try {
-                    old.close(CloseStatus.POLICY_VIOLATION.withReason("reconnected elsewhere"));
-                } catch (IOException ignored) {
-                    // 어차피 버리는 연결
-                }
-            }
+            if (old != null && old != conn) old.terminate(Connection.CloseReason.REPLACED);
         }
     }
 

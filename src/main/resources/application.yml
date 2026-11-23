@@ -26,10 +26,15 @@ management:
 
 game:
   config-path: ${GAME_CONFIG_PATH:classpath:game-config.json}
-  debug-log-messages: ${GAME_DEBUG_LOG:true}
+  debug-log-messages: ${GAME_DEBUG_LOG:false}
   # 끊긴 플레이어가 Reconnect 로 돌아올 수 있는 시간. 넘으면 기권 처리
   reconnect-grace-sec: ${GAME_RECONNECT_GRACE_SEC:30}
   # 판이 끝난 뒤 역할 바꿔 재대결을 신청·수락할 수 있는 시간
   rematch-window-sec: ${GAME_REMATCH_WINDOW_SEC:30}
+  ws:
+    # 클라에서 이만큼 아무것도 안 오면 프로토콜 ping (브라우저가 자동 pong)
+    ping-interval-sec: ${GAME_WS_PING_INTERVAL_SEC:5}
+    # 이만큼 아무것도 안 오면 죽은 연결로 보고 끊음 → 재접속 유예 시작
+    idle-timeout-sec: ${GAME_WS_IDLE_TIMEOUT_SEC:15}
   # 웹소켓 허용 Origin 패턴 (쉼표 구분). 배포 시 프론트 도메인으로 제한할 것
   allowed-origins: ${GAME_ALLOWED_ORIGINS:*}
