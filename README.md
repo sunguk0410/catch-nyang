@@ -7,24 +7,45 @@
 
 ## 구조
 
-프론트·서버가 한 저장소에 있는 모노레포. 둘이 같이 쓰는 계약 파일은 `protocol/` 에만 있다.
+모노레포. 게임 규칙은 `rules/` 에 **Java 한 벌**만 있고, 서버(멀티)는 그대로 쓰고 브라우저(싱글)는 JS 로 변환해서 쓴다.
 
 ```
 catch-nyang/
 ├─ protocol/                      # ★ 프론트·서버 공용 계약 (복사하지 말고 여기 것을 읽을 것)
 │  ├─ catchnyang/v1/game.proto    # 메시지 정의 → Java·TS 코드 생성
 │  └─ game-config.json            # 점수·쿨타임·도구 수치
-├─ server/                        # Java 21 · Spring Boot · WebSocket(바이너리) · JPA · Flyway (Gradle 하위 프로젝트)
+├─ rules/                         # ★ 게임 규칙 + AI (순수 Java, 외부 의존성 없음) — 서버·브라우저 공용
 │  └─ src/main/java/com/catchnyang/
-│     ├─ game/      # 규칙 엔진 (Match). 스레드·네트워크 모름, tick(dt) 로만 시간이 흐름
-│     ├─ room/      # 방 = 판 + 플레이어 둘. 20Hz 루프, 역할별 필터(EventFilter·RoleSnapshot), 통계
+│     ├─ game/      # 규칙 엔진 (Match). tick(dt) 로만 시간이 흐름
+│     ├─ room/      # RoomCore(입력→tick→역할별 묶음), 역할별 필터, 스냅샷, 메시지 JSON 변환
+│     └─ ai/        # AI 감독관·냥이, LocalMatch(서버 없는 한 판), Conformance(JVM≡JS 확인 기록)
+├─ rules-js/                      # rules → 브라우저용 JS (TeaVM) → web/src/gen/rules/rules.js
+├─ server/                        # 멀티 서버: Spring Boot · WebSocket(바이너리) · JPA · Flyway
+│  └─ src/main/java/com/catchnyang/
+│     ├─ room/      # GameRoom(스레드 경계·전송) · 20Hz 루프
 │     ├─ ws/        # 웹소켓 ↔ proto, 로비(매칭·방 코드·재접속·재대결), 송신·하트비트
-│     └─ history/   # 판 결과 비동기 DB 저장 (game_match / match_player)
+│     └─ history/   # 판 결과 비동기 DB 저장
 ├─ web/                           # 프론트 (TypeScript · Vite · Three.js) — web/README.md
-├─ settings.gradle · gradlew      # Gradle 진입점은 루트 (server 를 포함). IntelliJ 는 루트를 열면 됨
+├─ settings.gradle · gradlew      # Gradle 진입점 (rules · rules-js · server)
 ├─ buf.yaml                       # proto 문법 검사 · 깨지는 변경 감지
 └─ docker-compose.yml             # 로컬 MySQL 8
 ```
+
+### 싱글 · 멀티
+
+| | 싱글 (AI 상대) | 멀티 (1:1) |
+|---|---|---|
+| 규칙이 도는 곳 | 브라우저 (rules.js) | 서버 (rules) |
+| 서버 필요 | ❌ 오프라인 OK | ✅ |
+| 네트워크 지연 | 0 | 서버 왕복 |
+| 화면 코드 | 같음 — 싱글도 서버와 **같은 모양의 메시지**를 만들어 화면에 넘김 | |
+
+### 규칙을 바꿀 때 (`rules/`)
+
+- 브라우저 변환(TeaVM) 때문에 쓰면 안 되는 것: `SplittableRandom`, `List.addFirst` 같은 최신 컬렉션 메서드, 스트림, `Math.hypot`·`Math.cos`(JVM·JS 결과가 미세하게 다름 → `Math.sqrt`·`DetMath`), HashMap 순회 순서에 기대는 로직
+- JVM 과 JS 가 똑같이 도는지 상시 테스트함: 봇끼리 한 판의 모든 메시지 해시를 기준 파일(`rules/src/test/resources/conformance`)과 비교 (rules 테스트 = JVM, web 테스트 = JS)
+- 규칙·AI 를 **일부러** 바꿨으면 기준 갱신: `./gradlew :rules:test -PupdateConformance` → `cd web && npm test`
+- 봇 대 봇 밸런스 확인: `./gradlew :rules:test --tests '*BotSimulationTest*' -i` (200판, 1초 안팎)
 
 ## 프로토콜 바꿀 때
 

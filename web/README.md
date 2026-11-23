@@ -2,6 +2,9 @@
 
 프레임워크 없이 순수 TS. 3D 는 Three.js, 그 위 UI 는 DOM.
 
+- **싱글**(AI 상대): 서버 없이 브라우저 안에서 돌아감 — 게임 규칙·AI 는 `../rules` (Java) 를 JS 로 바꾼 `src/gen/rules/rules.js`
+- **멀티**: 서버 웹소켓
+
 ## 실행
 
 ```bash
@@ -18,17 +21,19 @@ npm run dev          # http://localhost:5173  (/ws 는 Vite 가 서버 8080 으�
 
 | 명령 | 하는 일 |
 |---|---|
-| `npm run gen` | `../protocol` 의 proto → `src/gen` TS 생성 (dev·build·test 전에 자동) |
-| `npm test` | 상태 저장소·충돌 단위 테스트 |
+| `npm run gen` | proto → TS + `../rules` → `rules.js` (dev·build·test 전에 자동, Java 21 필요) |
+| `npm test` | 상태 저장소·충돌·싱글 모드·**JVM≡JS 규칙 일치** 테스트 |
 | `npm run e2e` | 실제 서버에 붙어 한 판 + 재대결 (서버 켜 둘 것) |
-| `npm run shot` | 브라우저 두 개로 한 판 돌리며 `screenshots/` 에 화면 저장 (서버·dev 켜 둘 것) |
+| `npm run shot` | 브라우저 두 개로 멀티 한 판 돌리며 `screenshots/` 에 화면 저장 (서버·dev 켜 둘 것) |
+| `node scripts/screenshot-single.mjs` | 서버를 막아 둔 채 싱글 모드 두 역할을 돌리며 화면 저장 (dev 만) |
 | `npm run build` | 타입 검사 + 배포용 빌드 (`dist/`) |
 
 ## 구조
 
 ```
 src/
-├─ net/connection.ts     # 웹소켓 + protobuf, 모든 메시지에 seq
+├─ net/connection.ts     # 웹소켓 + protobuf, 모든 메시지에 seq (멀티)
+├─ local/local-server.ts # 싱글: 브라우저 안 가짜 서버 (rules.js + AI). 서버와 같은 메시지를 만듦
 ├─ state/game-store.ts   # 클라 게임 상태. Snapshot = 통째 교체, GameTick = 바뀐 것만
 ├─ scene/                # 3D
 │  ├─ game-scene.ts      #   렌더러·역할별 카메라·조작·사건 → 연출

@@ -79,6 +79,19 @@ kbd {
   border-top-color: var(--accent); animation: spin 0.9s linear infinite;
 }
 @keyframes spin { to { transform: rotate(360deg); } }
+.lobby-section { margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--panel-border); }
+.lobby-section:first-of-type { border-top: 0; padding-top: 0; }
+.section-title { display: flex; align-items: baseline; gap: 8px; margin-bottom: 10px; }
+.section-title b { font-size: 15px; }
+.section-title span { color: var(--muted); font-size: 12px; }
+.single-buttons { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.role-btn { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 14px 8px; white-space: normal; }
+.role-btn small { color: var(--muted); font-size: 12px; }
+.role-btn .role-emoji { font-size: 28px; line-height: 1; }
+.role-btn.cat { background: rgba(244, 114, 182, 0.18); border-color: rgba(244, 114, 182, 0.45); }
+.role-btn.cat:hover { background: rgba(244, 114, 182, 0.32); }
+.role-btn.proctor { background: rgba(96, 165, 250, 0.18); border-color: rgba(96, 165, 250, 0.45); }
+.role-btn.proctor:hover { background: rgba(96, 165, 250, 0.32); }
 .roles { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 20px; text-align: left; }
 .role-card { border-radius: 12px; padding: 10px 12px; font-size: 12px; color: var(--muted); display: flex; flex-direction: column; gap: 4px; }
 .role-card b { color: var(--text); font-size: 14px; }

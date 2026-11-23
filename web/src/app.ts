@@ -1,4 +1,5 @@
-import { Phase, RematchState, type ServerMessage } from './gen/catchnyang/v1/game_pb';
+import { Phase, RematchState, Role, type ServerMessage } from './gen/catchnyang/v1/game_pb';
+import { LocalServer } from './local/local-server';
 import { Connection, serverUrls, type ClientPayload } from './net/connection';
 import { GameStore } from './state/game-store';
 import { GameScene } from './scene/game-scene';
@@ -18,7 +19,10 @@ const ERROR_TEXT: Record<string, string> = {
 
 /**
  * 앱 전체: 서버 메시지 → 상태(GameStore) → 화면(로비 / 3D + HUD).
- * 끊기면 받아 둔 일회용 토큰으로 자동 재접속 (새로고침해도 유예 시간 안이면 이어서 함).
+ * <ul>
+ *   <li>멀티: 서버 웹소켓. 끊기면 받아 둔 일회용 토큰으로 자동 재접속 (새로고침해도 유예 시간 안이면 이어서 함)</li>
+ *   <li>싱글: 브라우저 안 가짜 서버(LocalServer, AI 상대). 메시지 모양이 같아서 아래 처리·화면은 그대로</li>
+ * </ul>
  */
 export class App {
   private conn!: Connection;
@@ -31,6 +35,8 @@ export class App {
   private token = '';
   private graceSec = 30;
   private reconnecting = false;
+  /** 싱글 모드 중이면 브라우저 안 가짜 서버 (null = 멀티) */
+  private local: LocalServer | null = null;
 
   /** 붙어 볼 주소들과, 마지막으로 붙었던 주소 번호 (재접속은 거기부터) */
   private readonly urls: string[];
@@ -39,6 +45,7 @@ export class App {
   constructor(root: HTMLElement, urls: string[] = serverUrls()) {
     this.urls = urls;
     this.lobby = new Lobby({
+      startSingle: (r) => this.startSingle(r === 'cat' ? Role.CAT : Role.PROCTOR),
       joinQueue: (nickname) => this.send({ case: 'joinQueue', value: { nickname } }),
       createRoom: (nickname) => this.send({ case: 'createRoom', value: { nickname } }),
       joinRoom: (nickname, roomCode) => this.send({ case: 'joinRoom', value: { nickname, roomCode } }),
@@ -94,7 +101,7 @@ export class App {
     for (let attempt = 0; ; attempt++) {
       const index = (this.urlIndex + attempt) % this.urls.length;
       const conn = new Connection(this.urls[index], {
-        onMessage: (m) => this.onMessage(m),
+        onMessage: (m) => this.onServerMessage(m),
         onClose: () => this.onDisconnected(),
       });
       try {
@@ -113,6 +120,12 @@ export class App {
   }
 
   private onDisconnected(): void {
+    if (this.local) {
+      // 싱글 중엔 화면은 그대로 두고 뒤에서 조용히 다시 연결 (로비로 돌아갔을 때 멀티를 바로 쓰게)
+      this.lobby.set({ kind: 'connecting' });
+      void this.connect().then(() => this.lobby.set({ kind: 'idle' }));
+      return;
+    }
     const inMatch = this.screen === 'game' && !this.store.result && !!this.token;
     if (inMatch) {
       this.hud.toast('연결이 끊겼어요 — 다시 연결하는 중…');
@@ -131,7 +144,7 @@ export class App {
     const deadline = performance.now() + this.graceSec * 1000;
     for (let attempt = 0; performance.now() < deadline; attempt++) {
       const index = (this.urlIndex + attempt) % this.urls.length;
-      const conn = new Connection(this.urls[index], { onMessage: (m) => this.onMessage(m), onClose: () => this.onDisconnected() });
+      const conn = new Connection(this.urls[index], { onMessage: (m) => this.onServerMessage(m), onClose: () => this.onDisconnected() });
       try {
         await conn.open(2000);
         this.conn = conn;
@@ -151,7 +164,23 @@ export class App {
   }
 
   private send(payload: ClientPayload): number {
+    if (this.local) return this.local.send(payload);
     return this.conn?.send(payload) ?? 0;
+  }
+
+  // =====================================================================
+  // 싱글
+  // =====================================================================
+
+  private startSingle(role: Role): void {
+    this.local?.close();
+    this.local = new LocalServer((m) => this.onMessage(m));
+    this.local.start(role);
+  }
+
+  /** 서버에서 온 메시지. 싱글 중엔 화면에 안 넘김 (핑 응답 등) */
+  private onServerMessage(m: ServerMessage): void {
+    if (!this.local) this.onMessage(m);
   }
 
   // =====================================================================
@@ -171,9 +200,11 @@ export class App {
         this.lobby.set({ kind: 'idle' });
         break;
       case 'matchFound':
-        this.token = p.value.sessionToken;
-        this.graceSec = p.value.reconnectGraceSeconds || 30;
-        saveToken(this.token);
+        if (!this.local) {
+          this.token = p.value.sessionToken;
+          this.graceSec = p.value.reconnectGraceSeconds || 30;
+          saveToken(this.token);
+        }
         this.store.startMatch(p.value);
         this.showScreen('game');
         break;
@@ -235,8 +266,12 @@ export class App {
     this.store.setRematch(RematchState.UNSPECIFIED, 0);
     this.store.hasSnapshot = false;
     this.store.result = null;
+    if (this.local) {
+      this.local.close();
+      this.local = null;
+    }
     this.showScreen('lobby');
-    this.lobby.set({ kind: 'idle' });
+    this.lobby.set({ kind: this.conn?.isOpen ? 'idle' : 'connecting' });
   }
 
   private showScreen(s: 'lobby' | 'game'): void {
