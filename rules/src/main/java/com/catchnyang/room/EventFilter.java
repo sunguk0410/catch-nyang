@@ -1,5 +1,6 @@
 package com.catchnyang.room;
 
+import com.catchnyang.game.DetMath;
 import com.catchnyang.game.GameEvent;
 import com.catchnyang.game.GameEvent.*;
 import com.catchnyang.game.Match;
@@ -72,7 +73,7 @@ public final class EventFilter {
     }
 
     /** target 이 eye 에서 facing 기준 ±fov/2 안에 있는지. 바로 붙어 있으면(10cm 이내) 보이는 걸로 */
-    static boolean inFov(Vec2 eye, Vec2 facing, Vec2 target, double fovDeg) {
+    public static boolean inFov(Vec2 eye, Vec2 facing, Vec2 target, double fovDeg) {
         double tx = target.x() - eye.x();
         double tz = target.z() - eye.z();
         // hypot 대신 sqrt: JVM·JS 에서 결과가 비트 단위로 같아야 함 (sqrt 는 양쪽 다 IEEE 정확 반올림)
@@ -80,6 +81,6 @@ public final class EventFilter {
         if (len < 0.1) return true;
         double fl = Math.sqrt(facing.x() * facing.x() + facing.z() * facing.z());
         double cos = (tx * facing.x() + tz * facing.z()) / (len * fl);
-        return cos >= Math.cos(Math.toRadians(fovDeg / 2.0)) - 1e-9;
+        return cos >= DetMath.cosDeg(fovDeg / 2.0) - 1e-9;  // Math.cos 는 JVM·JS 결과가 다를 수 있음
     }
 }
