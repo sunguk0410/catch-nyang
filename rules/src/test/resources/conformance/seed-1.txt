@@ -1,0 +1,26 @@
+t=0 hash=7f5c1477 phase=PREPARE target=70 avg=56.1111 cat=-1 known=0 swats=3 detectors=3
+t=200 hash=e831f97e phase=PLAYING target=70 avg=56.1111 cat=6 known=0 swats=3 detectors=3
+t=400 hash=6da10ef3 phase=PLAYING target=70 avg=56.1111 cat=8 known=2 swats=3 detectors=3
+t=600 hash=defbe910 phase=PLAYING target=70 avg=57.2222 cat=6 known=4 swats=3 detectors=3
+t=800 hash=2874e337 phase=PLAYING target=67 avg=58.8889 cat=2 known=6 swats=3 detectors=2
+t=1000 hash=1fef732f phase=PLAYING target=67 avg=61.1111 cat=2 known=7 swats=3 detectors=2
+t=1200 hash=53b6cee3 phase=PLAYING target=67 avg=62.7778 cat=3 known=8 swats=3 detectors=2
+t=1400 hash=f4ea7781 phase=PLAYING target=67 avg=66.1111 cat=5 known=8 swats=3 detectors=2
+t=1600 hash=aca7aa07 phase=PLAYING target=67 avg=68.3333 cat=0 known=9 swats=3 detectors=2
+t=1800 hash=e5719cd2 phase=PLAYING target=67 avg=68.8889 cat=0 known=12 swats=3 detectors=2
+t=2000 hash=bce739f6 phase=PLAYING target=67 avg=71.1111 cat=3 known=13 swats=3 detectors=2
+t=2200 hash=10092494 phase=PLAYING target=67 avg=70.5556 cat=3 known=19 swats=3 detectors=2
+t=2400 hash=f8ccc3c1 phase=PLAYING target=67 avg=74.4444 cat=6 known=19 swats=3 detectors=2
+t=2600 hash=ff3ed5e8 phase=PLAYING target=62 avg=74.4444 cat=8 known=19 swats=2 detectors=2
+t=2800 hash=66e01a90 phase=PLAYING target=62 avg=77.2222 cat=1 known=19 swats=2 detectors=2
+t=3000 hash=859583cc phase=PLAYING target=62 avg=77.7778 cat=7 known=20 swats=2 detectors=2
+t=3200 hash=ee1c52c4 phase=PLAYING target=62 avg=78.3333 cat=8 known=20 swats=2 detectors=2
+t=3400 hash=9fd91d36 phase=PLAYING target=62 avg=77.7778 cat=8 known=20 swats=2 detectors=2
+t=3600 hash=ceb80a50 phase=PLAYING target=62 avg=78.3333 cat=7 known=20 swats=2 detectors=2
+t=3800 hash=f314553e phase=PLAYING target=62 avg=78.3333 cat=7 known=20 swats=2 detectors=2
+t=4000 hash=ec0bc693 phase=PLAYING target=62 avg=81.1111 cat=8 known=20 swats=2 detectors=2
+t=4200 hash=5125f65f phase=PLAYING target=62 avg=81.6667 cat=8 known=20 swats=2 detectors=2
+t=4400 hash=59197bda phase=PLAYING target=62 avg=81.6667 cat=7 known=20 swats=2 detectors=2
+t=4600 hash=94338ec3 phase=PLAYING target=62 avg=82.2222 cat=5 known=20 swats=2 detectors=2
+t=4800 hash=ca012319 phase=PLAYING target=62 avg=82.7778 cat=8 known=20 swats=2 detectors=2
+END t=5000 hash=5c2e0b15 phase=ENDED target=62 avg=82.7778 cat=8 known=20 swats=2 detectors=2 winner=CAT reason=AVG_REACHED

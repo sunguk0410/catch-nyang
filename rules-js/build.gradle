@@ -1,0 +1,36 @@
+// rules(게임 규칙 + AI) → 브라우저용 JS (TeaVM). 결과는 web/src/gen/rules/rules.js (커밋 안 함)
+// web 의 `npm run gen` 이 이 태스크를 부른다: ./gradlew :rules-js:generateJavaScript
+import org.teavm.gradle.api.JSModuleType
+
+plugins {
+	id 'java'
+	id 'org.teavm' version '0.16.0'
+}
+
+repositories {
+	mavenCentral()
+}
+
+java {
+	toolchain {
+		languageVersion = JavaLanguageVersion.of(21)
+	}
+}
+
+dependencies {
+	implementation project(':rules')
+	implementation teavm.libs.jso
+}
+
+teavm {
+	all {
+		mainClass = 'com.catchnyang.js.RulesJs'
+	}
+	js {
+		moduleType = JSModuleType.ES2015
+		targetFileName = 'rules.js'
+		outputDir = rootProject.file('web/src/gen')
+		relativePathInOutputDir = 'rules'
+		obfuscated = true
+	}
+}

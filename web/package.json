@@ -4,7 +4,7 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "gen": "buf generate",
+    "gen": "node scripts/gen.mjs",
     "predev": "npm run gen",
     "dev": "vite",
     "prebuild": "npm run gen",

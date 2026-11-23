@@ -49,6 +49,12 @@ public final class LocalMatch {
 
     /** 한 tick 진행. 사람에게 보낼 묶음 (봇끼리면 빈 목록) */
     public List<Outbound> tick() {
+        Map<Role, List<Outbound>> out = tickAllRoles();
+        return human == null ? new ArrayList<>() : out.get(human);
+    }
+
+    /** 한 tick 진행 (봇은 자기 묶음을 보고 다음 명령을 냄). 두 역할의 묶음을 다 돌려줌 — 테스트·비교용 */
+    public Map<Role, List<Outbound>> tickAllRoles() {
         Map<Role, List<Outbound>> out = core.tick();
         for (var e : views.entrySet()) {
             Role r = e.getKey();
@@ -56,7 +62,7 @@ public final class LocalMatch {
             view.apply(out.get(r));
             for (GameCommand c : bots.get(r).decide(view)) core.submit(r, 0, c);
         }
-        return human == null ? new ArrayList<>() : out.get(human);
+        return out;
     }
 
     public boolean isFinished() {

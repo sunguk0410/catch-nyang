@@ -1,5 +1,6 @@
 rootProject.name = 'catch-nyang'
 
 // 모노레포: Gradle 진입점은 저장소 루트 (프론트 web/ 는 npm)
-include 'rules'   // 게임 규칙 (순수 Java) — 서버·브라우저 공용
-include 'server'  // 멀티 서버
+include 'rules'     // 게임 규칙 + AI (순수 Java) — 서버·브라우저 공용
+include 'rules-js'  // rules → 브라우저용 JS (TeaVM)
+include 'server'    // 멀티 서버

@@ -24,4 +24,7 @@ dependencies {
 
 tasks.named('test') {
 	useJUnitPlatform()
+	// 규칙·봇을 일부러 바꿨을 때 JVM·JS 비교 기준 기록 갱신: ./gradlew :rules:test -PupdateConformance
+	systemProperty 'updateConformance', project.hasProperty('updateConformance')
+	outputs.upToDateWhen { !project.hasProperty('updateConformance') }
 }
