@@ -28,12 +28,14 @@ export class Connection {
       const ws = new WebSocket(this.url);
       ws.binaryType = 'arraybuffer';
       this.ws = ws;
+      let opened = false;
       const timer = setTimeout(() => {
         reject(new Error('connect timeout'));
         ws.close();
       }, timeoutMs);
 
       ws.onopen = () => {
+        opened = true;
         clearTimeout(timer);
         this.handlers.onOpen?.();
         resolve();
@@ -55,6 +57,11 @@ export class Connection {
       };
       ws.onclose = (ev) => {
         clearTimeout(timer);
+        // 열리기도 전에 닫힘 = 연결 실패 (끊김 처리로 보내면 재시도 루프가 겹겹이 생김)
+        if (!opened) {
+          reject(new Error(`closed before open (${ev.code})`));
+          return;
+        }
         if (!this.closedByUs) this.handlers.onClose?.({ code: ev.code, reason: ev.reason });
       };
     });
@@ -77,6 +84,17 @@ export class Connection {
     this.closedByUs = true;
     this.ws?.close();
   }
+}
+
+/**
+ * 시도할 서버 주소들 (앞에서부터). 기본은 페이지와 같은 주소의 /ws (개발: Vite 프록시, 운영: 리버스 프록시).
+ * 개발 모드에선 Vite 프록시가 죽어 있을 때(설정 파일이 바뀌어 Vite 가 재시작된 뒤 등)를 대비해 서버(:8080)에 직접도 붙어 본다.
+ */
+export function serverUrls(loc: Location = location): string[] {
+  const primary = defaultServerUrl(loc);
+  const overridden = new URLSearchParams(loc.search).has('server');
+  if (!import.meta.env.DEV || overridden) return [primary];
+  return [primary, `ws://${loc.hostname}:8080/ws`];
 }
 
 /** 기본은 페이지와 같은 주소의 /ws (개발: Vite 프록시, 운영: 리버스 프록시). ?server=ws://… 로 바꿀 수 있음 */

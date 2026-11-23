@@ -1,5 +1,5 @@
 import { Phase, RematchState, type ServerMessage } from './gen/catchnyang/v1/game_pb';
-import { Connection, defaultServerUrl, type ClientPayload } from './net/connection';
+import { Connection, serverUrls, type ClientPayload } from './net/connection';
 import { GameStore } from './state/game-store';
 import { GameScene } from './scene/game-scene';
 import { Hud } from './ui/hud';
@@ -32,7 +32,12 @@ export class App {
   private graceSec = 30;
   private reconnecting = false;
 
-  constructor(root: HTMLElement, private readonly url = defaultServerUrl()) {
+  /** 붙어 볼 주소들과, 마지막으로 붙었던 주소 번호 (재접속은 거기부터) */
+  private readonly urls: string[];
+  private urlIndex = 0;
+
+  constructor(root: HTMLElement, urls: string[] = serverUrls()) {
+    this.urls = urls;
     this.lobby = new Lobby({
       joinQueue: (nickname) => this.send({ case: 'joinQueue', value: { nickname } }),
       createRoom: (nickname) => this.send({ case: 'createRoom', value: { nickname } }),
@@ -87,15 +92,20 @@ export class App {
 
   private async connect(): Promise<void> {
     for (let attempt = 0; ; attempt++) {
-      const conn = new Connection(this.url, {
+      const index = (this.urlIndex + attempt) % this.urls.length;
+      const conn = new Connection(this.urls[index], {
         onMessage: (m) => this.onMessage(m),
         onClose: () => this.onDisconnected(),
       });
       try {
-        await conn.open();
+        await conn.open(3000);
         this.conn = conn;
+        this.urlIndex = index;
+        this.lobby.showError('');
         return;
       } catch {
+        // 주소가 여러 개면 다음 주소는 바로 시도
+        if ((attempt + 1) % this.urls.length !== 0) continue;
         this.lobby.showError(attempt === 0 ? '서버에 연결할 수 없어요. 다시 시도하는 중…' : `서버에 연결할 수 없어요 (${attempt + 1}번째 시도)`);
         await sleep(Math.min(5000, 1000 * (attempt + 1)));
       }
@@ -119,11 +129,13 @@ export class App {
     if (this.reconnecting) return;
     this.reconnecting = true;
     const deadline = performance.now() + this.graceSec * 1000;
-    while (performance.now() < deadline) {
-      const conn = new Connection(this.url, { onMessage: (m) => this.onMessage(m), onClose: () => this.onDisconnected() });
+    for (let attempt = 0; performance.now() < deadline; attempt++) {
+      const index = (this.urlIndex + attempt) % this.urls.length;
+      const conn = new Connection(this.urls[index], { onMessage: (m) => this.onMessage(m), onClose: () => this.onDisconnected() });
       try {
         await conn.open(2000);
         this.conn = conn;
+        this.urlIndex = index;
         this.reconnecting = false;
         this.send({ case: 'reconnect', value: { sessionToken: this.token } });
         return;
