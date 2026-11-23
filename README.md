@@ -20,7 +20,7 @@ catch-nyang/
 │     ├─ room/      # 방 = 판 + 플레이어 둘. 20Hz 루프, 역할별 필터(EventFilter·RoleSnapshot), 통계
 │     ├─ ws/        # 웹소켓 ↔ proto, 로비(매칭·방 코드·재접속·재대결), 송신·하트비트
 │     └─ history/   # 판 결과 비동기 DB 저장 (game_match / match_player)
-├─ web/                           # 프론트 (TypeScript · Vite · Three.js) — 아직 비어 있음
+├─ web/                           # 프론트 (TypeScript · Vite · Three.js) — web/README.md
 ├─ settings.gradle · gradlew      # Gradle 진입점은 루트 (server 를 포함). IntelliJ 는 루트를 열면 됨
 ├─ buf.yaml                       # proto 문법 검사 · 깨지는 변경 감지
 └─ docker-compose.yml             # 로컬 MySQL 8
@@ -51,6 +51,9 @@ docker compose up -d mysql
 
 # 테스트 (로컬 MySQL 이 떠 있어야 함 — 통합 테스트가 실제 DB 에 썼다가 지움)
 ./gradlew test
+
+# 3) 프론트 (http://localhost:5173)
+cd web && npm install && npm run dev
 ```
 
 | 환경 변수 | 기본값 | 설명 |

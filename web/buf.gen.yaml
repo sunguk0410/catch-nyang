@@ -1,0 +1,8 @@
+# ../protocol 의 proto → src/gen 에 TS 생성 (npm run gen). 생성물은 커밋하지 않음
+version: v2
+inputs:
+  - directory: ../protocol
+plugins:
+  - local: protoc-gen-es
+    out: src/gen
+    opt: target=ts
