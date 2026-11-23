@@ -44,7 +44,7 @@ dependencies {
 }
 
 // 프론트와 같이 쓰는 계약 파일은 저장소 루트의 protocol/ 에 있다 (game.proto, game-config.json)
-def protocolDir = rootProject.file('../protocol')
+def protocolDir = rootProject.file('protocol')
 
 sourceSets {
 	main {

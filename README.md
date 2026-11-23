@@ -14,13 +14,14 @@ catch-nyang/
 ├─ protocol/                      # ★ 프론트·서버 공용 계약 (복사하지 말고 여기 것을 읽을 것)
 │  ├─ catchnyang/v1/game.proto    # 메시지 정의 → Java·TS 코드 생성
 │  └─ game-config.json            # 점수·쿨타임·도구 수치
-├─ server/                        # Java 21 · Spring Boot · WebSocket(바이너리) · JPA · Flyway
+├─ server/                        # Java 21 · Spring Boot · WebSocket(바이너리) · JPA · Flyway (Gradle 하위 프로젝트)
 │  └─ src/main/java/com/catchnyang/
 │     ├─ game/      # 규칙 엔진 (Match). 스레드·네트워크 모름, tick(dt) 로만 시간이 흐름
 │     ├─ room/      # 방 = 판 + 플레이어 둘. 20Hz 루프, 역할별 필터(EventFilter·RoleSnapshot), 통계
 │     ├─ ws/        # 웹소켓 ↔ proto, 로비(매칭·방 코드·재접속·재대결), 송신·하트비트
 │     └─ history/   # 판 결과 비동기 DB 저장 (game_match / match_player)
 ├─ web/                           # 프론트 (TypeScript · Vite · Three.js) — 아직 비어 있음
+├─ settings.gradle · gradlew      # Gradle 진입점은 루트 (server 를 포함). IntelliJ 는 루트를 열면 됨
 ├─ buf.yaml                       # proto 문법 검사 · 깨지는 변경 감지
 └─ docker-compose.yml             # 로컬 MySQL 8
 ```
@@ -41,18 +42,16 @@ catch-nyang/
 ## 로컬 실행
 
 ```bash
-# 1) DB (저장소 루트에서)
+# 전부 저장소 루트에서
+# 1) DB
 docker compose up -d mysql
 
 # 2) 서버 (http://localhost:8080, WebSocket /ws)
-cd server
 ./gradlew bootRun
 
 # 테스트 (로컬 MySQL 이 떠 있어야 함 — 통합 테스트가 실제 DB 에 썼다가 지움)
 ./gradlew test
 ```
-
-IntelliJ: 루트를 연 뒤 `server/build.gradle` 을 Gradle 프로젝트로 연결 (Gradle 탭 → `+` → `server/build.gradle`).
 
 | 환경 변수 | 기본값 | 설명 |
 |---|---|---|
@@ -98,7 +97,6 @@ IntelliJ: 루트를 연 뒤 `server/build.gradle` 을 Gradle 프로젝트로 연
 ### 부하 측정
 
 ```bash
-cd server
 ./gradlew loadTest -Dload.rooms=1000 -Dload.seconds=15            # 기본 200방
 ./gradlew loadTest -Dload.rooms=1000 -Dload.jfr=build/load.jfr     # JFR 녹화 같이
 ```
