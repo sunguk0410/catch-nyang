@@ -40,7 +40,12 @@ public record GameConfig(
             double halfWidthM,
             double halfDepthM,
             double proctorSpawnX,
-            double proctorSpawnZ
+            double proctorSpawnZ,
+            // 자리마다 책상+의자+학생이 차지하는 직사각형 (자리 좌표 기준). 감독관은 못 지나감
+            double deskHalfWidthM,  // 좌우 반폭
+            double deskFrontM,      // 자리 좌표에서 칠판(+z) 쪽으로 (책상 앞 모서리)
+            double deskBackM,       // 자리 좌표에서 뒤(-z) 쪽으로 (의자 등받이)
+            double proctorRadiusM   // 감독관 몸 반지름
     ) {}
 
     public record CatRules(

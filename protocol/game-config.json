@@ -25,7 +25,11 @@
     "halfWidthM": 4.5,
     "halfDepthM": 5.0,
     "proctorSpawnX": 0,
-    "proctorSpawnZ": 4.0
+    "proctorSpawnZ": 4.0,
+    "deskHalfWidthM": 0.48,
+    "deskFrontM": 0.15,
+    "deskBackM": 0.85,
+    "proctorRadiusM": 0.22
   },
   "cat": {
     "possessCooldownSec": 3,

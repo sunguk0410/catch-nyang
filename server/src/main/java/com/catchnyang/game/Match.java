@@ -120,7 +120,31 @@ public final class Match {
         var room = cfg.classroom();
         double x = clamp(proctor.position.x() + proctor.moveX * step, room.halfWidthM());
         double z = clamp(proctor.position.z() + proctor.moveZ * step, room.halfDepthM());
-        proctor.position = new Vec2(x, z);
+        proctor.position = pushOutOfDesks(x, z);
+    }
+
+    /**
+     * 책상 블록(책상+의자+학생) 안으로 들어갔으면 가장 가까운 면 밖으로 밀어냄.
+     * 한 tick 이동량(0.15m)이 블록보다 훨씬 작아서 뚫고 지나갈 일은 없다.
+     * 프론트(web/src/scene/collision.ts)도 같은 계산으로 예측하므로 바꾸면 같이 바꿀 것.
+     */
+    Vec2 pushOutOfDesks(double x, double z) {
+        var room = cfg.classroom();
+        double r = room.proctorRadiusM();
+        for (Student s : students) {
+            double minX = s.position.x() - room.deskHalfWidthM() - r;
+            double maxX = s.position.x() + room.deskHalfWidthM() + r;
+            double minZ = s.position.z() - room.deskBackM() - r;
+            double maxZ = s.position.z() + room.deskFrontM() + r;
+            if (x <= minX || x >= maxX || z <= minZ || z >= maxZ) continue;
+            double toMinX = x - minX, toMaxX = maxX - x, toMinZ = z - minZ, toMaxZ = maxZ - z;
+            double m = Math.min(Math.min(toMinX, toMaxX), Math.min(toMinZ, toMaxZ));
+            if (m == toMinX) x = minX;
+            else if (m == toMaxX) x = maxX;
+            else if (m == toMinZ) z = minZ;
+            else z = maxZ;
+        }
+        return new Vec2(x, z);
     }
 
     private void updateCat() {

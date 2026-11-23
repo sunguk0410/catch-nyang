@@ -202,6 +202,31 @@ class MatchTest {
     }
 
     @Test
+    @DisplayName("책상 블록은 못 뚫고 앞에서 멈춤 — 멈춘 자리에서 검사는 가능")
+    void desksBlockMovement() {
+        startPlaying();
+        // 교탁(0, 4)에서 학생 쪽(-z)으로 직진 → 앞줄 가운데 자리(서버 자리 7, (0, 2.2)) 책상 앞에서 멈춤
+        match.proctorMove(0, -1);
+        advance(2000);
+        var room = CFG.classroom();
+        double stopZ = 2.2 + room.deskFrontM() + room.proctorRadiusM();
+        assertThat(match.proctor().position().z()).isCloseTo(stopZ, org.assertj.core.data.Offset.offset(1e-9));
+        assertThat(match.proctor().position().x()).isEqualTo(0.0);
+        advance(1000);
+        assertThat(match.proctor().inspectingSeat()).isEqualTo(7);
+    }
+
+    @Test
+    @DisplayName("통로로는 지나갈 수 있음")
+    void aislesAreWalkable() {
+        startPlaying();
+        match.teleportProctor(new Vec2(1.1, 4));  // 가운데 줄과 오른쪽 줄 사이 통로
+        match.proctorMove(0, -1);
+        advance(4000);
+        assertThat(match.proctor().position().z()).isEqualTo(-CFG.classroom().halfDepthM());
+    }
+
+    @Test
     @DisplayName("학생 앞에 2초 서 있으면 검사 가능")
     void inspect() {
         startPlaying();
