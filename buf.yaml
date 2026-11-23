@@ -1,0 +1,18 @@
+# 프론트·서버가 같이 쓰는 protobuf 계약 검사 (https://buf.build)
+#
+#   npx @bufbuild/buf@1.75.0 lint                                  # 문법·이름 규칙
+#   npx @bufbuild/buf@1.75.0 breaking --against '.git#branch=main'  # main 대비 깨지는 변경
+#
+# proto 를 고치는 PR 은 둘 다 통과해야 함.
+version: v2
+modules:
+  - path: protocol
+lint:
+  use:
+    - STANDARD
+breaking:
+  # WIRE: 이미 배포된 클라(브라우저에 캐시된 옛 빌드 등)와 바이너리로 주고받을 수 있는지만 본다.
+  # 필드 번호 재사용·타입 변경·필드 삭제(reserved 없이)는 막고, 이름 바꾸기는 허용
+  # (프론트·서버가 같은 저장소에서 함께 다시 생성하므로 이름은 PR 에서 같이 고치면 됨).
+  use:
+    - WIRE

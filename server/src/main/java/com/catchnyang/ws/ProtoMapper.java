@@ -85,7 +85,7 @@ final class ProtoMapper {
     }
 
     static Rejected rejected(int seq, ActionResult reason) {
-        return Rejected.newBuilder().setSeq(seq).setReason(RejectReason.valueOf(reason.name())).build();
+        return Rejected.newBuilder().setSeq(seq).setReason(RejectReason.valueOf("REJECT_REASON_" + reason.name())).build();
     }
 
     static Snapshot snapshot(RoleSnapshot s) {
@@ -153,7 +153,7 @@ final class ProtoMapper {
             case GameEvent.AverageRevealed x -> b.setAverageRevealed(AverageRevealed.newBuilder().setAverage((float) x.average()));
             case GameEvent.MatchEnded x -> b.setMatchEnded(MatchEnded.newBuilder()
                     .setWinner(role(x.winner()))
-                    .setReason(EndReason.valueOf(x.reason().name()))
+                    .setReason(EndReason.valueOf("END_REASON_" + x.reason().name()))
                     .setFinalAverage((float) x.finalAverage())
                     .setFinalTarget(x.finalTarget()));
         }
@@ -179,15 +179,15 @@ final class ProtoMapper {
     }
 
     static Role role(com.catchnyang.game.Role r) {
-        return r == null ? Role.ROLE_UNSPECIFIED : Role.valueOf(r.name());
+        return r == null ? Role.ROLE_UNSPECIFIED : Role.valueOf("ROLE_" + r.name());
     }
 
     static Phase phase(com.catchnyang.game.Phase p) {
-        return Phase.valueOf(p.name());
+        return Phase.valueOf("PHASE_" + p.name());
     }
 
     static ToolType tool(com.catchnyang.game.ToolType t) {
-        return t == null ? ToolType.TOOL_UNSPECIFIED : ToolType.valueOf(t.name());
+        return t == null ? ToolType.TOOL_TYPE_UNSPECIFIED : ToolType.valueOf("TOOL_TYPE_" + t.name());
     }
 
     static Mark mark(Boolean v) {

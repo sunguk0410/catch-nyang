@@ -43,6 +43,24 @@ dependencies {
 	testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 }
 
+// 프론트와 같이 쓰는 계약 파일은 저장소 루트의 protocol/ 에 있다 (game.proto, game-config.json)
+def protocolDir = rootProject.file('../protocol')
+
+sourceSets {
+	main {
+		proto {
+			srcDir protocolDir
+		}
+	}
+}
+
+// game-config.json 을 classpath 루트로 (서버 기본 설정·테스트가 classpath:game-config.json 으로 읽음)
+tasks.named('processResources') {
+	from(protocolDir) {
+		include 'game-config.json'
+	}
+}
+
 protobuf {
 	protoc {
 		artifact = "com.google.protobuf:protoc:${protobufVersion}"

@@ -236,7 +236,7 @@ public class Lobby implements MatchEndListener, AutoCloseable {
             if (!m.room.submit(role, msg.getSeq(), c)) {
                 sender.send(s, ServerMessage.newBuilder()
                         .setTick(GameTick.newBuilder().addRejected(
-                                Rejected.newBuilder().setSeq(msg.getSeq()).setReason(RejectReason.RATE_LIMITED)))
+                                Rejected.newBuilder().setSeq(msg.getSeq()).setReason(RejectReason.REJECT_REASON_RATE_LIMITED)))
                         .build());
                 return;
             }
@@ -525,8 +525,8 @@ public class Lobby implements MatchEndListener, AutoCloseable {
         cat.player.rematch = r;
         proctor.player.rematch = r;
         r.expiry = timers.schedule(() -> expireRematch(r), rematchWindowMs, TimeUnit.MILLISECONDS);
-        sendRematch(cat.player, RematchState.REMATCH_AVAILABLE, r);
-        sendRematch(proctor.player, RematchState.REMATCH_AVAILABLE, r);
+        sendRematch(cat.player, RematchState.REMATCH_STATE_AVAILABLE, r);
+        sendRematch(proctor.player, RematchState.REMATCH_STATE_AVAILABLE, r);
     }
 
     // ---------- 재대결 ----------
@@ -542,7 +542,7 @@ public class Lobby implements MatchEndListener, AutoCloseable {
             Player other = r.other(p);
             if (other.rematch != r || other.state != State.IDLE || !other.session.isOpen()) {
                 closeRematch(r);
-                sendRematch(p, RematchState.REMATCH_DECLINED, r);
+                sendRematch(p, RematchState.REMATCH_STATE_DECLINED, r);
                 return;
             }
             r.want(p);
@@ -552,8 +552,8 @@ public class Lobby implements MatchEndListener, AutoCloseable {
                 startMatch(r.prevProctor, r.prevCat, r.type, r.roomCode, r.prevRoomId);
                 return;
             }
-            sendRematch(p, RematchState.REMATCH_WAITING, r);
-            sendRematch(other, RematchState.REMATCH_OFFERED, r);
+            sendRematch(p, RematchState.REMATCH_STATE_WAITING, r);
+            sendRematch(other, RematchState.REMATCH_STATE_OFFERED, r);
         }
     }
 
@@ -575,15 +575,15 @@ public class Lobby implements MatchEndListener, AutoCloseable {
         Player other = r.other(p);
         boolean otherStillIn = other.rematch == r;
         closeRematch(r);
-        if (otherStillIn) sendRematch(other, RematchState.REMATCH_DECLINED, r);
+        if (otherStillIn) sendRematch(other, RematchState.REMATCH_STATE_DECLINED, r);
     }
 
     private void expireRematch(Rematch r) {
         synchronized (lock) {
             if (r.closed) return;
             closeRematch(r);
-            sendRematch(r.prevCat, RematchState.REMATCH_EXPIRED, r);
-            sendRematch(r.prevProctor, RematchState.REMATCH_EXPIRED, r);
+            sendRematch(r.prevCat, RematchState.REMATCH_STATE_EXPIRED, r);
+            sendRematch(r.prevProctor, RematchState.REMATCH_STATE_EXPIRED, r);
         }
     }
 
@@ -595,8 +595,8 @@ public class Lobby implements MatchEndListener, AutoCloseable {
     }
 
     private void sendRematch(Player p, RematchState state, Rematch r) {
-        boolean open = state == RematchState.REMATCH_AVAILABLE || state == RematchState.REMATCH_WAITING
-                || state == RematchState.REMATCH_OFFERED;
+        boolean open = state == RematchState.REMATCH_STATE_AVAILABLE || state == RematchState.REMATCH_STATE_WAITING
+                || state == RematchState.REMATCH_STATE_OFFERED;
         sender.send(p.session, ServerMessage.newBuilder().setRematchUpdate(RematchUpdate.newBuilder()
                 .setState(state)
                 .setExpiresMs(open ? r.remainingMs() : 0)).build());

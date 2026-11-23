@@ -118,7 +118,7 @@ class WebSocketFlowTest {
         assertThat(fa.getOpponentNickname()).isEqualTo("손님");
         assertThat(fb.getOpponentNickname()).isEqualTo("호스트");
         assertThat(fa.getSessionToken()).isNotEqualTo(fb.getSessionToken());
-        return fa.getMyRole() == Role.CAT ? new Pair(a, b, fa, fb) : new Pair(b, a, fb, fa);
+        return fa.getMyRole() == Role.ROLE_CAT ? new Pair(a, b, fa, fb) : new Pair(b, a, fb, fa);
     }
 
     @Test
@@ -132,15 +132,15 @@ class WebSocketFlowTest {
 
         MatchFound fa = a.await(ServerMessage::hasMatchFound, "MatchFound").getMatchFound();
         MatchFound fb = b.await(ServerMessage::hasMatchFound, "MatchFound").getMatchFound();
-        assertThat(Map.of(fa.getMyRole(), 1, fb.getMyRole(), 2)).containsKeys(Role.CAT, Role.PROCTOR);
+        assertThat(Map.of(fa.getMyRole(), 1, fb.getMyRole(), 2)).containsKeys(Role.ROLE_CAT, Role.ROLE_PROCTOR);
         assertThat(fa.getPrepareSeconds()).isEqualTo(10);
 
         Snapshot sa = a.await(ServerMessage::hasSnapshot, "Snapshot").getSnapshot();
         assertThat(sa.getMyRole()).isEqualTo(fa.getMyRole());
-        assertThat(sa.getPhase()).isEqualTo(Phase.PREPARE);
+        assertThat(sa.getPhase()).isEqualTo(Phase.PHASE_PREPARE);
         assertThat(sa.getSeatsCount()).isEqualTo(9);
-        assertThat(sa.hasCat()).isEqualTo(fa.getMyRole() == Role.CAT);
-        assertThat(sa.hasProctorView()).isEqualTo(fa.getMyRole() == Role.PROCTOR);
+        assertThat(sa.hasCat()).isEqualTo(fa.getMyRole() == Role.ROLE_CAT);
+        assertThat(sa.hasProctorView()).isEqualTo(fa.getMyRole() == Role.ROLE_PROCTOR);
 
         // 정리: 기권 → 판 종료 (랜덤 매칭은 room_code 가 없어 DB 행을 직접 지움)
         a.send(msg().setLeaveMatch(LeaveMatch.getDefaultInstance()));
@@ -190,14 +190,14 @@ class WebSocketFlowTest {
         int seq = p.cat().send(msg().setPossess(Possess.newBuilder().setSeat(3)));
         GameTick t = p.cat().await(m -> m.hasTick() && m.getTick().getRejectedCount() > 0, "rejected").getTick();
         assertThat(t.getRejected(0).getSeq()).isEqualTo(seq);
-        assertThat(t.getRejected(0).getReason()).isEqualTo(RejectReason.WRONG_PHASE);
+        assertThat(t.getRejected(0).getReason()).isEqualTo(RejectReason.REJECT_REASON_WRONG_PHASE);
         assertThat(t.getAckSeq()).isEqualTo(seq);
 
         // 다른 역할의 행동
         int s2 = p.proctor().send(msg().setUseTool(UseTool.newBuilder().addQuestions(0)));
         GameTick t2 = p.proctor().await(m -> m.hasTick() && m.getTick().getRejectedCount() > 0, "rejected").getTick();
         assertThat(t2.getRejected(0).getSeq()).isEqualTo(s2);
-        assertThat(t2.getRejected(0).getReason()).isEqualTo(RejectReason.INVALID);
+        assertThat(t2.getRejected(0).getReason()).isEqualTo(RejectReason.REJECT_REASON_INVALID);
 
         // 준비 중에도 시선은 돌릴 수 있음 → 둘 다 ProctorState 받음
         p.proctor().send(msg().setProctorMove(ProctorMove.newBuilder().setFaceX(1)));
@@ -221,7 +221,7 @@ class WebSocketFlowTest {
         back.send(msg().setReconnect(Reconnect.newBuilder().setSessionToken(token)));
         Reconnected r = back.await(ServerMessage::hasReconnected, "Reconnected").getReconnected();
         assertThat(r.getRoomId()).isEqualTo(p.catFound().getRoomId());
-        assertThat(r.getMyRole()).isEqualTo(Role.CAT);
+        assertThat(r.getMyRole()).isEqualTo(Role.ROLE_CAT);
         assertThat(r.getSessionToken()).isNotEqualTo(token);
         Snapshot s = back.await(ServerMessage::hasSnapshot, "snapshot after reconnect").getSnapshot();
         assertThat(s.hasCat()).isTrue();
@@ -231,7 +231,7 @@ class WebSocketFlowTest {
         Thread.sleep(1500);
         int seq = back.send(msg().setRemark(Remark.newBuilder().setQuestion(0)));
         assertThat(back.await(m -> m.hasTick() && m.getTick().getAckSeq() == seq, "ack").getTick().getPhase())
-                .isEqualTo(Phase.PREPARE);
+                .isEqualTo(Phase.PHASE_PREPARE);
 
         Client thief = new Client().connect();
         thief.send(msg().setReconnect(Reconnect.newBuilder().setSessionToken(token)));
@@ -250,8 +250,8 @@ class WebSocketFlowTest {
                 && m.getTick().getEventsList().stream().anyMatch(GameEvent::hasMatchEnded), "MatchEnded")
                 .getTick().getEventsList().stream().filter(GameEvent::hasMatchEnded).findFirst().orElseThrow()
                 .getMatchEnded();
-        assertThat(end.getWinner()).isEqualTo(Role.PROCTOR);
-        assertThat(end.getReason()).isEqualTo(EndReason.DISCONNECT);
+        assertThat(end.getWinner()).isEqualTo(Role.ROLE_PROCTOR);
+        assertThat(end.getReason()).isEqualTo(EndReason.END_REASON_DISCONNECT);
 
         // 비동기 저장 기다림
         long deadline = System.currentTimeMillis() + 5000;
@@ -299,7 +299,7 @@ class WebSocketFlowTest {
         for (Client c : List.of(p.cat(), p.proctor())) {
             c.await(matchEnded(), "MatchEnded");
             RematchUpdate u = c.await(ServerMessage::hasRematchUpdate, "rematch available").getRematchUpdate();
-            assertThat(u.getState()).isEqualTo(RematchState.REMATCH_AVAILABLE);
+            assertThat(u.getState()).isEqualTo(RematchState.REMATCH_STATE_AVAILABLE);
             assertThat(u.getExpiresMs()).isBetween(1, 2000);
         }
         return p;
@@ -323,17 +323,17 @@ class WebSocketFlowTest {
         String code = roomCodes.getLast();
 
         p.proctor().send(msg().setRequestRematch(RequestRematch.getDefaultInstance()));
-        p.proctor().await(rematch(RematchState.REMATCH_WAITING), "waiting");
-        p.cat().await(rematch(RematchState.REMATCH_OFFERED), "offered");
+        p.proctor().await(rematch(RematchState.REMATCH_STATE_WAITING), "waiting");
+        p.cat().await(rematch(RematchState.REMATCH_STATE_OFFERED), "offered");
 
         p.cat().send(msg().setRequestRematch(RequestRematch.getDefaultInstance()));
         MatchFound oldCat = p.cat().await(ServerMessage::hasMatchFound, "rematch found").getMatchFound();
         MatchFound oldProctor = p.proctor().await(ServerMessage::hasMatchFound, "rematch found").getMatchFound();
         assertThat(oldCat.getRematch()).isTrue();
-        assertThat(oldCat.getMyRole()).isEqualTo(Role.PROCTOR);       // 역할이 바뀜
-        assertThat(oldProctor.getMyRole()).isEqualTo(Role.CAT);
+        assertThat(oldCat.getMyRole()).isEqualTo(Role.ROLE_PROCTOR);       // 역할이 바뀜
+        assertThat(oldProctor.getMyRole()).isEqualTo(Role.ROLE_CAT);
         assertThat(oldCat.getRoomId()).isNotEqualTo(p.catFound().getRoomId());
-        assertThat(p.cat().await(ServerMessage::hasSnapshot, "snapshot").getSnapshot().getMyRole()).isEqualTo(Role.PROCTOR);
+        assertThat(p.cat().await(ServerMessage::hasSnapshot, "snapshot").getSnapshot().getMyRole()).isEqualTo(Role.ROLE_PROCTOR);
 
         long firstId = savedMatchId(code, "PROCTOR");  // 첫 판: 냥이 기권 → 감독관 승
 
@@ -359,9 +359,9 @@ class WebSocketFlowTest {
     void rematchDeclined() throws Exception {
         Pair p = endedPair();
         p.cat().send(msg().setRequestRematch(RequestRematch.getDefaultInstance()));
-        p.proctor().await(rematch(RematchState.REMATCH_OFFERED), "offered");
+        p.proctor().await(rematch(RematchState.REMATCH_STATE_OFFERED), "offered");
         p.proctor().send(msg().setDeclineRematch(DeclineRematch.getDefaultInstance()));
-        p.cat().await(rematch(RematchState.REMATCH_DECLINED), "declined");
+        p.cat().await(rematch(RematchState.REMATCH_STATE_DECLINED), "declined");
 
         p.proctor().send(msg().setRequestRematch(RequestRematch.getDefaultInstance()));
         assertThat(p.proctor().await(ServerMessage::hasError, "error").getError().getCode()).isEqualTo("NO_REMATCH");
@@ -372,12 +372,12 @@ class WebSocketFlowTest {
     void rematchCancelledWhenOpponentLeaves() throws Exception {
         Pair p = endedPair();
         p.proctor().send(msg().setJoinQueue(JoinQueue.newBuilder().setNickname("다른판")));
-        p.cat().await(rematch(RematchState.REMATCH_DECLINED), "declined");
+        p.cat().await(rematch(RematchState.REMATCH_STATE_DECLINED), "declined");
         p.proctor().send(msg().setCancelQueue(CancelQueue.getDefaultInstance()));
 
         Pair q = endedPair();
         q.proctor().close();
-        q.cat().await(rematch(RematchState.REMATCH_DECLINED), "declined on disconnect");
+        q.cat().await(rematch(RematchState.REMATCH_STATE_DECLINED), "declined on disconnect");
     }
 
     @Test
@@ -385,8 +385,8 @@ class WebSocketFlowTest {
     void rematchExpires() throws Exception {
         Pair p = endedPair();
         p.cat().send(msg().setRequestRematch(RequestRematch.getDefaultInstance()));
-        p.cat().await(rematch(RematchState.REMATCH_EXPIRED), "expired cat");
-        p.proctor().await(rematch(RematchState.REMATCH_EXPIRED), "expired proctor");
+        p.cat().await(rematch(RematchState.REMATCH_STATE_EXPIRED), "expired cat");
+        p.proctor().await(rematch(RematchState.REMATCH_STATE_EXPIRED), "expired proctor");
         p.proctor().send(msg().setRequestRematch(RequestRematch.getDefaultInstance()));
         assertThat(p.proctor().await(ServerMessage::hasError, "error").getError().getCode()).isEqualTo("NO_REMATCH");
     }

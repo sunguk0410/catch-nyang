@@ -182,7 +182,7 @@ class HeartbeatFlowTest {
 
         GameEvent end = host.await(m -> m.hasTick() && m.getTick().getEventsList().stream().anyMatch(GameEvent::hasMatchEnded),
                 "MatchEnded").getTick().getEventsList().stream().filter(GameEvent::hasMatchEnded).findFirst().orElseThrow();
-        assertThat(end.getMatchEnded().getReason()).isEqualTo(EndReason.DISCONNECT);
+        assertThat(end.getMatchEnded().getReason()).isEqualTo(EndReason.END_REASON_DISCONNECT);
         assertThat(registry.get("ws.terminated").tag("reason", "IDLE").counter().count()).isGreaterThanOrEqualTo(1);
     }
 

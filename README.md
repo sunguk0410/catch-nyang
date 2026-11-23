@@ -7,36 +7,52 @@
 
 ## 구조
 
+프론트·서버가 한 저장소에 있는 모노레포. 둘이 같이 쓰는 계약 파일은 `protocol/` 에만 있다.
+
 ```
-catch-nyang/                      # Java 21 · Spring Boot · WebSocket(바이너리) · JPA · Flyway
-├─ docker-compose.yml             # 로컬 MySQL 8
-└─ src/main/
-   ├─ java/com/catchnyang/
-   │  ├─ game/      # 규칙 엔진 (Match). 스레드·네트워크 모름, tick(dt) 로만 시간이 흐름
-   │  ├─ room/      # 방 = 판 + 플레이어 둘. 20Hz 루프, 역할별 필터(EventFilter·RoleSnapshot), 통계
-   │  ├─ ws/        # 웹소켓 ↔ proto, 로비(FIFO 매칭 스레드·방 코드·재접속), 방 → 클라 송신
-   │  └─ history/   # 판 결과 비동기 DB 저장 (game_match / match_player)
-   ├─ proto/game.proto            # 메시지 정의 (Java·TS 공용)
-   └─ resources/
-      ├─ application.yml
-      ├─ game-config.json         # 점수·쿨타임·도구 수치 (서버·싱글 공용)
-      └─ db/migration/            # Flyway
+catch-nyang/
+├─ protocol/                      # ★ 프론트·서버 공용 계약 (복사하지 말고 여기 것을 읽을 것)
+│  ├─ catchnyang/v1/game.proto    # 메시지 정의 → Java·TS 코드 생성
+│  └─ game-config.json            # 점수·쿨타임·도구 수치
+├─ server/                        # Java 21 · Spring Boot · WebSocket(바이너리) · JPA · Flyway
+│  └─ src/main/java/com/catchnyang/
+│     ├─ game/      # 규칙 엔진 (Match). 스레드·네트워크 모름, tick(dt) 로만 시간이 흐름
+│     ├─ room/      # 방 = 판 + 플레이어 둘. 20Hz 루프, 역할별 필터(EventFilter·RoleSnapshot), 통계
+│     ├─ ws/        # 웹소켓 ↔ proto, 로비(매칭·방 코드·재접속·재대결), 송신·하트비트
+│     └─ history/   # 판 결과 비동기 DB 저장 (game_match / match_player)
+├─ web/                           # 프론트 (TypeScript · Vite · Three.js) — 아직 비어 있음
+├─ buf.yaml                       # proto 문법 검사 · 깨지는 변경 감지
+└─ docker-compose.yml             # 로컬 MySQL 8
 ```
 
-프론트(TypeScript · Vite · Three.js)는 별도 담당. `src/main/proto/game.proto` 와 `src/main/resources/game-config.json` 은 프론트와 공유하는 계약 파일이라 바꿀 때 같이 알려야 함.
+## 프로토콜 바꿀 때
+
+1. `protocol/catchnyang/v1/game.proto` 수정
+2. 검사 (Node 만 있으면 됨):
+   ```bash
+   npx @bufbuild/buf@1.75.0 lint
+   npx @bufbuild/buf@1.75.0 breaking --against '.git#branch=main'
+   ```
+3. **같은 PR 에서** 서버(`server/`)와 프론트(`web/`)를 같이 맞춤
+
+규칙: 필드 번호는 절대 재사용하지 않음. 필드를 지울 땐 `reserved` 로 번호를 막아 둠. enum 값은 enum 이름을 접두사로 (`ROLE_CAT`).
+서버는 도메인 enum 과 proto enum 을 이름으로 맞추므로(`CAT` ↔ `ROLE_CAT`) 한쪽에만 값을 추가하면 `ProtoMapperTest` 가 실패한다.
 
 ## 로컬 실행
 
 ```bash
-# 1) DB
+# 1) DB (저장소 루트에서)
 docker compose up -d mysql
 
 # 2) 서버 (http://localhost:8080, WebSocket /ws)
+cd server
 ./gradlew bootRun
 
 # 테스트 (로컬 MySQL 이 떠 있어야 함 — 통합 테스트가 실제 DB 에 썼다가 지움)
 ./gradlew test
 ```
+
+IntelliJ: 루트를 연 뒤 `server/build.gradle` 을 Gradle 프로젝트로 연결 (Gradle 탭 → `+` → `server/build.gradle`).
 
 | 환경 변수 | 기본값 | 설명 |
 |---|---|---|
@@ -47,7 +63,7 @@ docker compose up -d mysql
 | `GAME_ALLOWED_ORIGINS` | `*` | 웹소켓 허용 Origin (쉼표 구분). **배포 시 프론트 도메인으로** |
 | `GAME_CONFIG_PATH` | `classpath:game-config.json` | 규칙 수치 파일 |
 
-## 프로토콜 흐름 (`game.proto`)
+## 프로토콜 흐름 (`protocol/catchnyang/v1/game.proto`)
 
 모든 프레임은 바이너리 `ClientMessage` / `ServerMessage`.
 
@@ -82,6 +98,7 @@ docker compose up -d mysql
 ### 부하 측정
 
 ```bash
+cd server
 ./gradlew loadTest -Dload.rooms=1000 -Dload.seconds=15            # 기본 200방
 ./gradlew loadTest -Dload.rooms=1000 -Dload.jfr=build/load.jfr     # JFR 녹화 같이
 ```

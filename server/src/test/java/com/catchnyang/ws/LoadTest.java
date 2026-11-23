@@ -89,7 +89,7 @@ class LoadTest {
                 found.countDown();
             } else if (msg.hasTick()) {
                 GameTick t = msg.getTick();
-                if (t.getPhase() == Phase.PLAYING) playing = true;
+                if (t.getPhase() == Phase.PHASE_PLAYING) playing = true;
                 if (measuring) {
                     bytesIn += m.getPayloadLength();
                     framesIn++;
@@ -174,7 +174,7 @@ class LoadTest {
         drivers.scheduleAtFixedRate(() -> {
             int s = step.incrementAndGet();
             for (Bot b : bots) {
-                if (b.role == Role.PROCTOR) {
+                if (b.role == Role.ROLE_PROCTOR) {
                     b.send(ClientMessage.newBuilder().setProctorMove(ProctorMove.newBuilder()
                             .setDx(s % 2 == 0 ? 1 : -1).setDz(0.3f).setFaceX(s % 2 == 0 ? 1 : -1).setFaceZ(-1)));
                 } else if (s % 31 == 0) {
@@ -200,7 +200,7 @@ class LoadTest {
         long bytes = 0, frames = 0;
         for (Bot b : bots) {
             gaps.addAll(b.tickGapsNanos);
-            if (b.role == Role.PROCTOR) acks.addAll(b.ackNanos);
+            if (b.role == Role.ROLE_PROCTOR) acks.addAll(b.ackNanos);
             bytes += b.bytesIn;
             frames += b.framesIn;
         }
