@@ -31,7 +31,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
- * 로비: 연결 ↔ 플레이어, 랜덤 매칭, 방 코드, 재접속, 게임 입력 전달.
+ * 로비: 연결 ↔ 플레이어, 랜덤 매칭, 방 코드, 재접속, 역할 바꾼 재대결, 게임 입력 전달.
  * <p>
  * 상태 전이(대기열·방 코드·매칭 성사·끊김·재접속·판 종료)는 전부 {@link #lock} 하나로 직렬화한다 —
  * 로비 메시지는 드물어서 경합이 거의 없고, 경쟁 조건(취소 vs 매칭, 끊김 vs 재접속)을 단순하게 막을 수 있다.
@@ -57,6 +57,8 @@ public class Lobby implements MatchEndListener, AutoCloseable {
         String roomCode;
         volatile ActiveMatch match;
         volatile Role role;
+        /** 방금 끝난 판의 재대결 (판 종료 뒤 rematch-window 동안만) */
+        Rematch rematch;
 
         Player(WebSocketSession session) {
             this.session = session;
@@ -92,11 +94,52 @@ public class Lobby implements MatchEndListener, AutoCloseable {
         }
     }
 
+    /** 판 하나가 끝난 뒤 두 사람 사이의 재대결 제안. 둘 다 원하면 역할을 바꿔 새 판 */
+    static final class Rematch {
+        final String prevRoomId;
+        final MatchType type;
+        final String roomCode;
+        final Player prevCat;
+        final Player prevProctor;
+        final long expiresAtNanos;
+        boolean catWants;
+        boolean proctorWants;
+        boolean closed;
+        ScheduledFuture<?> expiry;
+
+        Rematch(String prevRoomId, MatchType type, String roomCode, Player prevCat, Player prevProctor, long windowMs) {
+            this.prevRoomId = prevRoomId;
+            this.type = type;
+            this.roomCode = roomCode;
+            this.prevCat = prevCat;
+            this.prevProctor = prevProctor;
+            this.expiresAtNanos = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(windowMs);
+        }
+
+        Player other(Player p) {
+            return p == prevCat ? prevProctor : prevCat;
+        }
+
+        void want(Player p) {
+            if (p == prevCat) catWants = true;
+            else proctorWants = true;
+        }
+
+        boolean bothWant() {
+            return catWants && proctorWants;
+        }
+
+        int remainingMs() {
+            return (int) Math.max(0, TimeUnit.NANOSECONDS.toMillis(expiresAtNanos - System.nanoTime()));
+        }
+    }
+
     private final Object lock = new Object();
     private final GameRooms rooms;
     private final GameConfig cfg;
     private final MessageSender sender;
     private final long graceMs;
+    private final long rematchWindowMs;
     private final SecureRandom random = new SecureRandom();
     private final AtomicLong ticketIds = new AtomicLong();
 
@@ -109,11 +152,13 @@ public class Lobby implements MatchEndListener, AutoCloseable {
             Executors.newSingleThreadScheduledExecutor(Thread.ofPlatform().name("reconnect-timer").daemon().factory());
 
     public Lobby(GameRooms rooms, GameConfig cfg, MessageSender sender,
-                 @Value("${game.reconnect-grace-sec:30}") double graceSec) {
+                 @Value("${game.reconnect-grace-sec:30}") double graceSec,
+                 @Value("${game.rematch-window-sec:30}") double rematchWindowSec) {
         this.rooms = rooms;
         this.cfg = cfg;
         this.sender = sender;
         this.graceMs = Math.round(graceSec * 1000);
+        this.rematchWindowMs = Math.round(rematchWindowSec * 1000);
         matchmaker.start();
     }
 
@@ -129,6 +174,8 @@ public class Lobby implements MatchEndListener, AutoCloseable {
         synchronized (lock) {
             Player p = bySession.remove(raw.getId());
             if (p == null) return;  // 재접속으로 이미 다른 세션에 넘어간 옛 연결
+            settle(p);
+            leaveRematch(p);
             switch (p.state) {
                 case QUEUED -> leaveQueue(p);
                 case HOSTING -> closeRoomCode(p);
@@ -166,6 +213,8 @@ public class Lobby implements MatchEndListener, AutoCloseable {
             case CREATE_ROOM -> createRoom(p, msg.getCreateRoom().getNickname());
             case JOIN_ROOM -> joinRoom(p, msg.getJoinRoom().getNickname(), msg.getJoinRoom().getRoomCode());
             case RECONNECT -> reconnect(p, raw, msg.getReconnect().getSessionToken());
+            case REQUEST_REMATCH -> requestRematch(p);
+            case DECLINE_REMATCH -> declineRematch(p);
             default -> sender.error(s, "BAD_MESSAGE", "payload 없음");
         }
     }
@@ -199,6 +248,7 @@ public class Lobby implements MatchEndListener, AutoCloseable {
     private void joinQueue(Player p, String nickname) {
         String nick = validNickname(nickname);
         synchronized (lock) {
+            settle(p);
             if (nick == null) {
                 sender.error(p.session, "BAD_NICKNAME", "닉네임은 1~" + NICKNAME_MAX + "자");
                 return;
@@ -207,6 +257,7 @@ public class Lobby implements MatchEndListener, AutoCloseable {
                 sender.error(p.session, "BAD_STATE", p.state.name());
                 return;
             }
+            leaveRematch(p);
             p.nickname = nick;
             p.state = State.QUEUED;
             p.ticket = new Ticket(ticketIds.incrementAndGet(), p);
@@ -242,6 +293,7 @@ public class Lobby implements MatchEndListener, AutoCloseable {
 
     private void cancel(Player p) {
         synchronized (lock) {
+            settle(p);
             switch (p.state) {
                 case QUEUED -> leaveQueue(p);
                 case HOSTING -> closeRoomCode(p);
@@ -259,6 +311,7 @@ public class Lobby implements MatchEndListener, AutoCloseable {
     private void createRoom(Player p, String nickname) {
         String nick = validNickname(nickname);
         synchronized (lock) {
+            settle(p);
             if (nick == null) {
                 sender.error(p.session, "BAD_NICKNAME", "닉네임은 1~" + NICKNAME_MAX + "자");
                 return;
@@ -267,6 +320,7 @@ public class Lobby implements MatchEndListener, AutoCloseable {
                 sender.error(p.session, "BAD_STATE", p.state.name());
                 return;
             }
+            leaveRematch(p);
             String code;
             do {
                 code = newRoomCode();
@@ -282,6 +336,7 @@ public class Lobby implements MatchEndListener, AutoCloseable {
         String nick = validNickname(nickname);
         String code = rawCode == null ? "" : rawCode.trim().toUpperCase();
         synchronized (lock) {
+            settle(p);
             if (nick == null) {
                 sender.error(p.session, "BAD_NICKNAME", "닉네임은 1~" + NICKNAME_MAX + "자");
                 return;
@@ -297,6 +352,7 @@ public class Lobby implements MatchEndListener, AutoCloseable {
             }
             roomCodes.remove(code);
             host.roomCode = null;
+            leaveRematch(p);
             p.nickname = nick;
             startMatch(host, p, MatchType.ROOM_CODE, code);
         }
@@ -319,14 +375,19 @@ public class Lobby implements MatchEndListener, AutoCloseable {
     /** lock 안에서 호출. 역할은 랜덤 */
     private void startMatch(Player a, Player b, MatchType type, String roomCode) {
         boolean aIsCat = random.nextBoolean();
-        Player cat = aIsCat ? a : b;
-        Player proctor = aIsCat ? b : a;
-        a.ticket = null;
-        b.ticket = null;
+        startMatch(aIsCat ? a : b, aIsCat ? b : a, type, roomCode, null);
+    }
+
+    /** lock 안에서 호출. rematchOfRoomId != null 이면 재대결 */
+    private void startMatch(Player cat, Player proctor, MatchType type, String roomCode, String rematchOfRoomId) {
+        for (Player pl : List.of(cat, proctor)) {
+            pl.ticket = null;
+            pl.rematch = null;
+        }
 
         WsPlayerChannel catCh = new WsPlayerChannel(sender, cat.session);
         WsPlayerChannel proctorCh = new WsPlayerChannel(sender, proctor.session);
-        MatchInfo info = new MatchInfo(type, roomCode, cat.nickname, proctor.nickname, Instant.now());
+        MatchInfo info = new MatchInfo(type, roomCode, cat.nickname, proctor.nickname, Instant.now(), rematchOfRoomId);
 
         rooms.create(info, catCh, proctorCh, room -> {
             ActiveMatch m = new ActiveMatch(room);
@@ -345,11 +406,12 @@ public class Lobby implements MatchEndListener, AutoCloseable {
                         .setOpponentNickname(m.opponentOf(seat.role).player.nickname)
                         .setSessionToken(seat.token)
                         .setPrepareSeconds(cfg.match().prepareSec())
-                        .setReconnectGraceSeconds((int) Math.ceil(graceMs / 1000.0)))
+                        .setReconnectGraceSeconds((int) Math.ceil(graceMs / 1000.0))
+                        .setRematch(rematchOfRoomId != null))
                         .build());
             }
-            log.info("match {} started: type={} code={} cat={} proctor={}",
-                    room.id(), type, roomCode, cat.nickname, proctor.nickname);
+            log.info("match {} started: type={} code={} cat={} proctor={} rematchOf={}",
+                    room.id(), type, roomCode, cat.nickname, proctor.nickname, rematchOfRoomId);
         });
     }
 
@@ -434,17 +496,116 @@ public class Lobby implements MatchEndListener, AutoCloseable {
     @Override
     public void onMatchEnded(GameRoom room) {
         synchronized (lock) {
-            ActiveMatch m = matches.remove(room.id());
-            if (m == null) return;
-            for (Seat seat : m.seats.values()) {
-                if (seat.token != null) tokens.remove(seat.token);
-                if (seat.grace != null) seat.grace.cancel(false);
-                Player p = seat.player;
-                p.state = State.IDLE;
-                p.match = null;
-                p.role = null;
-            }
+            ActiveMatch m = matches.get(room.id());
+            if (m != null) endMatch(m);
         }
+    }
+
+    /**
+     * 판이 끝났는데 아직 종료 리스너가 안 돌았으면 지금 정리 (lock 안에서).
+     * MatchEnded 를 받은 클라가 리스너보다 먼저 다음 요청(재대결·대기열)을 보내는 경쟁을 막는다.
+     */
+    private void settle(Player p) {
+        ActiveMatch m = p.match;
+        if (p.state == State.IN_MATCH && m != null && m.room.isFinished()) endMatch(m);
+    }
+
+    /** lock 안에서. 두 사람을 로비로 돌리고, 둘 다 연결돼 있으면 재대결을 열어 줌 */
+    private void endMatch(ActiveMatch m) {
+        if (!matches.remove(m.room.id(), m)) return;
+        for (Seat seat : m.seats.values()) {
+            if (seat.token != null) tokens.remove(seat.token);
+            if (seat.grace != null) seat.grace.cancel(false);
+            Player p = seat.player;
+            p.state = State.IDLE;
+            p.match = null;
+            p.role = null;
+        }
+
+        Seat cat = m.seats.get(Role.CAT);
+        Seat proctor = m.seats.get(Role.PROCTOR);
+        if (!cat.channel.isConnected() || !proctor.channel.isConnected()) return;  // 나간 사람과는 재대결 없음
+
+        var info = m.room.info();
+        Rematch r = new Rematch(m.room.id(), info.type(), info.roomCode(), cat.player, proctor.player, rematchWindowMs);
+        cat.player.rematch = r;
+        proctor.player.rematch = r;
+        r.expiry = timers.schedule(() -> expireRematch(r), rematchWindowMs, TimeUnit.MILLISECONDS);
+        sendRematch(cat.player, RematchState.REMATCH_AVAILABLE, r);
+        sendRematch(proctor.player, RematchState.REMATCH_AVAILABLE, r);
+    }
+
+    // ---------- 재대결 ----------
+
+    private void requestRematch(Player p) {
+        synchronized (lock) {
+            settle(p);
+            Rematch r = p.rematch;
+            if (r == null) {
+                sender.error(p.session, "NO_REMATCH", "재대결할 수 있는 판이 없음");
+                return;
+            }
+            Player other = r.other(p);
+            if (other.rematch != r || other.state != State.IDLE || !other.session.isOpen()) {
+                closeRematch(r);
+                sendRematch(p, RematchState.REMATCH_DECLINED, r);
+                return;
+            }
+            r.want(p);
+            if (r.bothWant()) {
+                closeRematch(r);
+                // 역할 바꿈: 지난 판 감독관이 이번엔 냥이
+                startMatch(r.prevProctor, r.prevCat, r.type, r.roomCode, r.prevRoomId);
+                return;
+            }
+            sendRematch(p, RematchState.REMATCH_WAITING, r);
+            sendRematch(other, RematchState.REMATCH_OFFERED, r);
+        }
+    }
+
+    private void declineRematch(Player p) {
+        synchronized (lock) {
+            settle(p);
+            if (p.rematch == null) {
+                sender.error(p.session, "NO_REMATCH", "재대결할 수 있는 판이 없음");
+                return;
+            }
+            leaveRematch(p);
+        }
+    }
+
+    /** lock 안에서. p 가 재대결에서 빠짐 (거절·다른 매칭 시작·끊김) → 상대에게 DECLINED */
+    private void leaveRematch(Player p) {
+        Rematch r = p.rematch;
+        if (r == null) return;
+        Player other = r.other(p);
+        boolean otherStillIn = other.rematch == r;
+        closeRematch(r);
+        if (otherStillIn) sendRematch(other, RematchState.REMATCH_DECLINED, r);
+    }
+
+    private void expireRematch(Rematch r) {
+        synchronized (lock) {
+            if (r.closed) return;
+            closeRematch(r);
+            sendRematch(r.prevCat, RematchState.REMATCH_EXPIRED, r);
+            sendRematch(r.prevProctor, RematchState.REMATCH_EXPIRED, r);
+        }
+    }
+
+    private void closeRematch(Rematch r) {
+        r.closed = true;
+        if (r.expiry != null) r.expiry.cancel(false);
+        if (r.prevCat.rematch == r) r.prevCat.rematch = null;
+        if (r.prevProctor.rematch == r) r.prevProctor.rematch = null;
+    }
+
+    private void sendRematch(Player p, RematchState state, Rematch r) {
+        boolean open = state == RematchState.REMATCH_AVAILABLE || state == RematchState.REMATCH_WAITING
+                || state == RematchState.REMATCH_OFFERED;
+        sender.send(p.session, ServerMessage.newBuilder().setRematchUpdate(RematchUpdate.newBuilder()
+                .setState(state)
+                .setExpiresMs(open ? r.remainingMs() : 0)).build());
     }
 
     // ---------- 기타 ----------

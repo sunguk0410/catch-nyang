@@ -10,6 +10,8 @@ import java.util.Map;
 
 /** 저장할 판 결과 (방에서 복사해 둔 값 — 다른 스레드로 넘겨도 안전) */
 public record MatchResult(
+        String roomId,
+        String rematchOfRoomId,
         MatchType type,
         String roomCode,
         Instant startedAt,
@@ -28,7 +30,7 @@ public record MatchResult(
     public static MatchResult of(GameRoom room, Instant endedAt) {
         var m = room.match();
         var info = room.info();
-        return new MatchResult(info.type(), info.roomCode(), info.startedAt(), endedAt,
+        return new MatchResult(room.id(), info.rematchOfRoomId(), info.type(), info.roomCode(), info.startedAt(), endedAt,
                 m.winner(), m.endReason(), m.classAverage(), m.target(), m.ruleVersion(),
                 info.catNickname(), info.proctorNickname(),
                 Map.copyOf(room.stats().of(Role.CAT)), Map.copyOf(room.stats().of(Role.PROCTOR)));

@@ -51,10 +51,11 @@ public class GameMatchEntity {
 
     protected GameMatchEntity() {}
 
-    public GameMatchEntity(String matchType, String roomCode, LocalDateTime startedAt, LocalDateTime endedAt,
+    public GameMatchEntity(String matchType, String roomCode, Long rematchOf, LocalDateTime startedAt, LocalDateTime endedAt,
                            String winnerRole, String endReason, BigDecimal finalAvg, int finalTarget, String ruleVersion) {
         this.matchType = matchType;
         this.roomCode = roomCode;
+        this.rematchOf = rematchOf;
         this.startedAt = startedAt;
         this.endedAt = endedAt;
         this.winnerRole = winnerRole;

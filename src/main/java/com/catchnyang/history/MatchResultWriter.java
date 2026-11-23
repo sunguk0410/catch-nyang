@@ -30,12 +30,13 @@ public class MatchResultWriter {
         this.players = players;
     }
 
+    /** @param rematchOf 이전 판의 game_match.id (재대결이 아니거나 이전 판 저장이 실패했으면 null) */
     @Transactional
-    public long save(MatchResult r) {
+    public long save(MatchResult r, Long rematchOf) {
         BigDecimal avg = BigDecimal.valueOf(r.finalAverage()).setScale(1, RoundingMode.HALF_UP).min(MAX_AVG);
         int target = Math.max(Short.MIN_VALUE, Math.min(Short.MAX_VALUE, r.finalTarget()));
         GameMatchEntity match = matches.save(new GameMatchEntity(
-                r.type().name(), r.roomCode(), utc(r.startedAt()), utc(r.endedAt()),
+                r.type().name(), r.roomCode(), rematchOf, utc(r.startedAt()), utc(r.endedAt()),
                 r.winner().name(), r.endReason().name(), avg, target, r.ruleVersion()));
 
         players.save(new MatchPlayerEntity(match.getId(), Role.CAT.name(), r.catNickname(), json(r.catStats())));

@@ -41,6 +41,7 @@ docker compose up -d mysql
 | 환경 변수 | 기본값 | 설명 |
 |---|---|---|
 | `GAME_RECONNECT_GRACE_SEC` | 30 | 끊긴 뒤 이 안에 `Reconnect` 안 하면 기권 |
+| `GAME_REMATCH_WINDOW_SEC` | 30 | 판이 끝난 뒤 재대결을 신청·수락할 수 있는 시간 |
 | `GAME_ALLOWED_ORIGINS` | `*` | 웹소켓 허용 Origin (쉼표 구분). **배포 시 프론트 도메인으로** |
 | `GAME_CONFIG_PATH` | `classpath:game-config.json` | 규칙 수치 파일 |
 
@@ -60,6 +61,10 @@ docker compose up -d mysql
    - 모든 입력에 `seq` 를 1부터 올려 붙이면 처리 뒤 `ack_seq` 로 돌아옴 (예측 보정용)
 4. **끊김**: 상대에게 `OpponentConnection{connected=false, grace_ms}`. 유예 안에 새 연결로 `Reconnect{session_token}` → `Reconnected{새 토큰}` + `Snapshot`. 토큰은 일회용
 5. **종료**: `GameEvent.match_ended` → 둘 다 로비 상태로 돌아감 (다시 `JoinQueue` 가능). 결과는 DB 에 비동기 저장
+6. **재대결** (둘 다 연결된 채 끝난 판만): 종료 직후 `RematchUpdate{AVAILABLE, expires_ms}`
+   - 한쪽이 `RequestRematch` → 본인 `WAITING`, 상대 `OFFERED` → 상대도 `RequestRematch` 하면 역할을 바꿔 `MatchFound{rematch=true}`
+   - `DeclineRematch`·대기열/방 코드로 이동·끊김 → 상대 `DECLINED`, 시간 초과 → 둘 다 `EXPIRED`
+   - DB 에는 새 판의 `game_match.rematch_of` = 이전 판 id
 
 정보 차단은 서버에서 함: 감독관은 냥이 자리·확인한 정답·도구를 절대 못 받고, OMR 내용은 검사 중인 학생 것만 받음. 도구 이펙트(`ToolStarted`)는 감독관 시야각(`proctor.fovDeg`)·거리 안일 때만 감.
 
@@ -71,4 +76,4 @@ docker compose up -d mysql
 - [x] 냥이 조작: 빙의 이동, 도구 사용, OMR 수정
 - [x] 감독관 조작: 1인칭 이동·시선, 검사, 파리채, 전파 탐지기 (도구 이펙트 시야각 판정)
 - [x] 판 종료 시 `game_match` / `match_player` 비동기 저장 (역할별 통계 JSON)
-- [ ] 역할 바꿔 재대결 (`game_match.rematch_of` 컬럼만 있음)
+- [x] 역할 바꿔 재대결 (`rematch_of` 로 이전 판과 연결)

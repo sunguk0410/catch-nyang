@@ -79,6 +79,8 @@ message ClientMessage {
     JoinRoom join_room = 13;
     Reconnect reconnect = 14;
     Ping ping = 15;
+    RequestRematch request_rematch = 16;
+    DeclineRematch decline_rematch = 17;
 
     // 게임 중 — 냥이
     Possess possess = 20;
@@ -99,6 +101,9 @@ message CreateRoom { string nickname = 1; }    // 방 코드 발급 → 친구�
 message JoinRoom { string nickname = 1; string room_code = 2; }
 message Reconnect { string session_token = 1; } // 끊긴 뒤 유예 시간 안에 새 연결로
 message Ping { int64 client_time_ms = 1; }
+// 판이 끝난 뒤 같은 상대와 역할 바꿔 한 판 더. 둘 다 보내면 시작 (먼저 보낸 쪽 = 신청, 나중 = 수락)
+message RequestRematch {}
+message DeclineRematch {}  // 거절 / 신청 취소
 
 message Possess { uint32 seat = 1; }            // 다른 학생으로 빙의 이동
 message UseTool { repeated uint32 questions = 1; } // 빙의한 학생 도구로 문항 확인
@@ -124,6 +129,7 @@ message ServerMessage {
     QueueCancelled queue_cancelled = 15;
     Reconnected reconnected = 16;
     OpponentConnection opponent_connection = 17;
+    RematchUpdate rematch_update = 18;
 
     // 게임 중
     Snapshot snapshot = 20;
@@ -143,6 +149,7 @@ message MatchFound {
   string session_token = 4;     // 재접속용 일회용 토큰 (쓰면 새 토큰을 다시 줌)
   uint32 prepare_seconds = 5;   // 준비 시간
   uint32 reconnect_grace_seconds = 6; // 끊긴 뒤 이 시간 안에 Reconnect 안 하면 패배
+  bool rematch = 7;             // 역할 바꾼 재대결이면 true
 }
 
 // 재접속 성공. 바로 뒤에 Snapshot 이 옴
@@ -153,12 +160,24 @@ message Reconnected {
   string session_token = 4;     // 새 일회용 토큰
 }
 
+enum RematchState {
+  REMATCH_UNSPECIFIED = 0;
+  REMATCH_AVAILABLE = 1;  // 판 종료 직후 (둘 다 연결돼 있을 때만). expires_ms 안에 신청 가능
+  REMATCH_WAITING = 2;    // 내가 신청함, 상대 응답 기다리는 중
+  REMATCH_OFFERED = 3;    // 상대가 신청함 → RequestRematch 로 수락 / DeclineRematch 로 거절
+  REMATCH_DECLINED = 4;   // 상대가 거절했거나 나감 (끝)
+  REMATCH_EXPIRED = 5;    // 시간 초과 (끝)
+}
+
+// 재대결 진행 상황. 성사되면 이 메시지 대신 MatchFound{rematch=true} 가 옴
+message RematchUpdate { RematchState state = 1; uint32 expires_ms = 2; }
+
 // 상대 연결 상태 변화 (끊김 → grace_ms 안에 안 돌아오면 내 승리)
 message OpponentConnection { bool connected = 1; uint32 grace_ms = 2; }
 
 message Pong { int64 client_time_ms = 1; int64 server_time_ms = 2; }
 
-// code: BAD_MESSAGE, BAD_NICKNAME, BAD_STATE, ROOM_NOT_FOUND, BAD_TOKEN, NOT_IN_MATCH
+// code: BAD_MESSAGE, BAD_NICKNAME, BAD_STATE, ROOM_NOT_FOUND, BAD_TOKEN, NOT_IN_MATCH, NO_REMATCH
 message ErrorMessage { string code = 1; string message = 2; }
 
 // ---------- 게임 중: 전체 상태 ----------

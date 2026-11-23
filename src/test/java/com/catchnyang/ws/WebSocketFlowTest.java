@@ -24,9 +24,9 @@ import java.util.function.Predicate;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-/** 3~5번 통합: 실제 웹소켓 클라 둘로 매칭 → 게임 메시지 → 끊김·재접속 → DB 저장 (로컬 MySQL 필요) */
+/** 통합: 실제 웹소켓 클라 둘로 매칭 → 게임 메시지 → 끊김·재접속 → 재대결 → DB 저장 (로컬 MySQL 필요) */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
-        properties = {"game.reconnect-grace-sec=1", "game.debug-log-messages=false"})
+        properties = {"game.reconnect-grace-sec=1", "game.rematch-window-sec=2", "game.debug-log-messages=false"})
 class WebSocketFlowTest {
 
     @LocalServerPort
@@ -89,6 +89,7 @@ class WebSocketFlowTest {
         while (lobby.activeMatches() > 0 && System.currentTimeMillis() < deadline) Thread.sleep(50);
         Thread.sleep(500);
         for (String code : roomCodes) {
+            jdbc.update("UPDATE game_match SET rematch_of = NULL WHERE room_code = ?", code);  // 자기 참조 FK
             jdbc.update("DELETE mp FROM match_player mp JOIN game_match gm ON gm.id = mp.match_id WHERE gm.room_code = ?", code);
             jdbc.update("DELETE FROM game_match WHERE room_code = ?", code);
         }
@@ -277,5 +278,128 @@ class WebSocketFlowTest {
         p.proctor().await(ServerMessage::hasQueueJoined, "QueueJoined again");
         p.proctor().send(msg().setCancelQueue(CancelQueue.getDefaultInstance()));
         p.proctor().await(ServerMessage::hasQueueCancelled, "cancel");
+    }
+
+    // =====================================================================
+    // 재대결
+    // =====================================================================
+
+    static Predicate<ServerMessage> rematch(RematchState state) {
+        return m -> m.hasRematchUpdate() && m.getRematchUpdate().getState() == state;
+    }
+
+    static Predicate<ServerMessage> matchEnded() {
+        return m -> m.hasTick() && m.getTick().getEventsList().stream().anyMatch(GameEvent::hasMatchEnded);
+    }
+
+    /** 방 코드 매칭 후 냥이가 기권해서 판을 끝냄 → 둘 다 재대결 가능 알림을 받음 */
+    Pair endedPair() throws Exception {
+        Pair p = matchByRoomCode();
+        p.cat().send(msg().setLeaveMatch(LeaveMatch.getDefaultInstance()));
+        for (Client c : List.of(p.cat(), p.proctor())) {
+            c.await(matchEnded(), "MatchEnded");
+            RematchUpdate u = c.await(ServerMessage::hasRematchUpdate, "rematch available").getRematchUpdate();
+            assertThat(u.getState()).isEqualTo(RematchState.REMATCH_AVAILABLE);
+            assertThat(u.getExpiresMs()).isBetween(1, 2000);
+        }
+        return p;
+    }
+
+    long savedMatchId(String code, String winnerRole) throws InterruptedException {
+        long deadline = System.currentTimeMillis() + 5000;
+        while (System.currentTimeMillis() < deadline) {
+            List<Long> ids = jdbc.queryForList(
+                    "SELECT id FROM game_match WHERE room_code = ? AND winner_role = ? ORDER BY id", Long.class, code, winnerRole);
+            if (!ids.isEmpty()) return ids.getLast();
+            Thread.sleep(100);
+        }
+        throw new AssertionError("game_match not saved");
+    }
+
+    @Test
+    @DisplayName("재대결: 한쪽 신청 → 상대에게 제안 → 수락하면 역할 바꿔 새 판, DB rematch_of 로 이어짐")
+    void rematchAccepted() throws Exception {
+        Pair p = endedPair();
+        String code = roomCodes.getLast();
+
+        p.proctor().send(msg().setRequestRematch(RequestRematch.getDefaultInstance()));
+        p.proctor().await(rematch(RematchState.REMATCH_WAITING), "waiting");
+        p.cat().await(rematch(RematchState.REMATCH_OFFERED), "offered");
+
+        p.cat().send(msg().setRequestRematch(RequestRematch.getDefaultInstance()));
+        MatchFound oldCat = p.cat().await(ServerMessage::hasMatchFound, "rematch found").getMatchFound();
+        MatchFound oldProctor = p.proctor().await(ServerMessage::hasMatchFound, "rematch found").getMatchFound();
+        assertThat(oldCat.getRematch()).isTrue();
+        assertThat(oldCat.getMyRole()).isEqualTo(Role.PROCTOR);       // 역할이 바뀜
+        assertThat(oldProctor.getMyRole()).isEqualTo(Role.CAT);
+        assertThat(oldCat.getRoomId()).isNotEqualTo(p.catFound().getRoomId());
+        assertThat(p.cat().await(ServerMessage::hasSnapshot, "snapshot").getSnapshot().getMyRole()).isEqualTo(Role.PROCTOR);
+
+        long firstId = savedMatchId(code, "PROCTOR");  // 첫 판: 냥이 기권 → 감독관 승
+
+        // 새 판을 끝내면 rematch_of = 이전 판 id
+        p.proctor().send(msg().setLeaveMatch(LeaveMatch.getDefaultInstance()));  // 이제 냥이인 쪽이 기권
+        p.proctor().await(matchEnded(), "MatchEnded 2");
+        long secondId = savedMatchId(code, "PROCTOR");
+        long deadline = System.currentTimeMillis() + 5000;
+        while (secondId == firstId && System.currentTimeMillis() < deadline) {
+            Thread.sleep(100);
+            secondId = savedMatchId(code, "PROCTOR");
+        }
+        Map<String, Object> second = jdbc.queryForMap("SELECT * FROM game_match WHERE id = ?", secondId);
+        assertThat(((Number) second.get("rematch_of")).longValue()).isEqualTo(firstId);
+        assertThat(second.get("match_type")).isEqualTo("ROOM_CODE");
+        List<Map<String, Object>> players = jdbc.queryForList(
+                "SELECT role, nickname FROM match_player WHERE match_id = ? ORDER BY role", secondId);
+        assertThat(players.getFirst().get("nickname")).isEqualTo(p.proctorFound().getOpponentNickname().equals("손님") ? "호스트" : "손님");
+    }
+
+    @Test
+    @DisplayName("재대결 거절: 신청한 쪽이 DECLINED 를 받고, 그 뒤엔 재대결 불가")
+    void rematchDeclined() throws Exception {
+        Pair p = endedPair();
+        p.cat().send(msg().setRequestRematch(RequestRematch.getDefaultInstance()));
+        p.proctor().await(rematch(RematchState.REMATCH_OFFERED), "offered");
+        p.proctor().send(msg().setDeclineRematch(DeclineRematch.getDefaultInstance()));
+        p.cat().await(rematch(RematchState.REMATCH_DECLINED), "declined");
+
+        p.proctor().send(msg().setRequestRematch(RequestRematch.getDefaultInstance()));
+        assertThat(p.proctor().await(ServerMessage::hasError, "error").getError().getCode()).isEqualTo("NO_REMATCH");
+    }
+
+    @Test
+    @DisplayName("상대가 대기열로 가거나 나가면 재대결은 취소됨")
+    void rematchCancelledWhenOpponentLeaves() throws Exception {
+        Pair p = endedPair();
+        p.proctor().send(msg().setJoinQueue(JoinQueue.newBuilder().setNickname("다른판")));
+        p.cat().await(rematch(RematchState.REMATCH_DECLINED), "declined");
+        p.proctor().send(msg().setCancelQueue(CancelQueue.getDefaultInstance()));
+
+        Pair q = endedPair();
+        q.proctor().close();
+        q.cat().await(rematch(RematchState.REMATCH_DECLINED), "declined on disconnect");
+    }
+
+    @Test
+    @DisplayName("아무도 안 하면 창(2초)이 지나 둘 다 EXPIRED")
+    void rematchExpires() throws Exception {
+        Pair p = endedPair();
+        p.cat().send(msg().setRequestRematch(RequestRematch.getDefaultInstance()));
+        p.cat().await(rematch(RematchState.REMATCH_EXPIRED), "expired cat");
+        p.proctor().await(rematch(RematchState.REMATCH_EXPIRED), "expired proctor");
+        p.proctor().send(msg().setRequestRematch(RequestRematch.getDefaultInstance()));
+        assertThat(p.proctor().await(ServerMessage::hasError, "error").getError().getCode()).isEqualTo("NO_REMATCH");
+    }
+
+    @Test
+    @DisplayName("끊겨서 진 판은 재대결 제안이 안 옴")
+    void noRematchAfterDisconnect() throws Exception {
+        Pair p = matchByRoomCode();
+        p.cat().close();
+        p.proctor().await(matchEnded(), "MatchEnded");
+        Thread.sleep(300);
+        assertThat(p.proctor().inbox).noneMatch(ServerMessage::hasRematchUpdate);
+        p.proctor().send(msg().setRequestRematch(RequestRematch.getDefaultInstance()));
+        assertThat(p.proctor().await(ServerMessage::hasError, "error").getError().getCode()).isEqualTo("NO_REMATCH");
     }
 }
