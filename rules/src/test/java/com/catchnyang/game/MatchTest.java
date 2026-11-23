@@ -2,7 +2,6 @@ package com.catchnyang.game;
 
 import com.catchnyang.game.GameEvent.*;
 import com.catchnyang.game.config.GameConfig;
-import com.catchnyang.game.config.GameConfigLoader;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -15,7 +14,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 class MatchTest {
 
-    static final GameConfig CFG = GameConfigLoader.loadDefault();
+    static final GameConfig CFG = TestConfig.CFG;
     static final long TICK = 1000L / CFG.server().tickHz();
 
     Match match;

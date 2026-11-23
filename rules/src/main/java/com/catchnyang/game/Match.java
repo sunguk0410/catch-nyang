@@ -292,7 +292,7 @@ public final class Match {
     public ActionResult proctorMove(double dx, double dz) {
         if (phase != Phase.PLAYING) return ActionResult.WRONG_PHASE;
         if (!Double.isFinite(dx) || !Double.isFinite(dz)) return ActionResult.INVALID;
-        double len = Math.hypot(dx, dz);
+        double len = Math.sqrt(dx * dx + dz * dz);
         if (len > 1) {
             dx /= len;
             dz /= len;
@@ -306,7 +306,7 @@ public final class Match {
     public ActionResult proctorLook(double fx, double fz) {
         if (phase == Phase.ENDED) return ActionResult.WRONG_PHASE;
         if (!Double.isFinite(fx) || !Double.isFinite(fz)) return ActionResult.INVALID;
-        double len = Math.hypot(fx, fz);
+        double len = Math.sqrt(fx * fx + fz * fz);
         if (len < 1e-6) return ActionResult.INVALID;
         proctor.facing = new Vec2(fx / len, fz / len);
         return ActionResult.OK;

@@ -75,9 +75,11 @@ public final class EventFilter {
     static boolean inFov(Vec2 eye, Vec2 facing, Vec2 target, double fovDeg) {
         double tx = target.x() - eye.x();
         double tz = target.z() - eye.z();
-        double len = Math.hypot(tx, tz);
+        // hypot 대신 sqrt: JVM·JS 에서 결과가 비트 단위로 같아야 함 (sqrt 는 양쪽 다 IEEE 정확 반올림)
+        double len = Math.sqrt(tx * tx + tz * tz);
         if (len < 0.1) return true;
-        double cos = (tx * facing.x() + tz * facing.z()) / (len * Math.hypot(facing.x(), facing.z()));
+        double fl = Math.sqrt(facing.x() * facing.x() + facing.z() * facing.z());
+        double cos = (tx * facing.x() + tz * facing.z()) / (len * fl);
         return cos >= Math.cos(Math.toRadians(fovDeg / 2.0)) - 1e-9;
     }
 }
