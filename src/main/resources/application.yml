@@ -1,0 +1,33 @@
+spring:
+  application:
+    name: catch-nyang-server
+  threads:
+    virtual:
+      enabled: true
+  datasource:
+    url: jdbc:mysql://${DB_HOST:localhost}:${DB_PORT:3306}/${DB_NAME:catchnyang}?serverTimezone=UTC&characterEncoding=UTF-8
+    username: ${DB_USER:catchnyang}
+    password: ${DB_PASSWORD:catchnyang}
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+  flyway:
+    enabled: true
+
+server:
+  port: ${PORT:8080}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+
+game:
+  config-path: ${GAME_CONFIG_PATH:classpath:game-config.json}
+  debug-log-messages: ${GAME_DEBUG_LOG:true}
+  # 끊긴 플레이어가 Reconnect 로 돌아올 수 있는 시간. 넘으면 기권 처리
+  reconnect-grace-sec: ${GAME_RECONNECT_GRACE_SEC:30}
+  # 웹소켓 허용 Origin 패턴 (쉼표 구분). 배포 시 프론트 도메인으로 제한할 것
+  allowed-origins: ${GAME_ALLOWED_ORIGINS:*}

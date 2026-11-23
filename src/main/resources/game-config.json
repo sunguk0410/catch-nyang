@@ -1,0 +1,65 @@
+{
+  "version": "0.1.0",
+  "server": {
+    "tickHz": 20
+  },
+  "match": {
+    "durationSec": 240,
+    "prepareSec": 10,
+    "studentCount": 9,
+    "gridSize": 3,
+    "questionCount": 20,
+    "pointsPerQuestion": 5,
+    "initialAccuracyMin": 0.45,
+    "initialAccuracyMax": 0.75,
+    "studentMistakeRate": 0.05,
+    "transcribeIntervalSecMin": 8,
+    "transcribeIntervalSecMax": 11,
+    "mistakeFixDelaySecMin": 2,
+    "mistakeFixDelaySecMax": 6,
+    "initialTarget": 70
+  },
+  "classroom": {
+    "seatSpacingM": 2.2,
+    "interactRangeM": 1.0,
+    "halfWidthM": 4.5,
+    "halfDepthM": 5.0,
+    "proctorSpawnX": 0,
+    "proctorSpawnZ": 4.0
+  },
+  "cat": {
+    "possessCooldownSec": 3,
+    "remarkSec": 1.5,
+    "stunSec": 5,
+    "lookRangeDeg": {
+      "center": [-55, 55],
+      "left": [-90, 20],
+      "right": [-20, 90]
+    },
+    "fovDeg": 110
+  },
+  "tools": {
+    "AI_GLASSES":        { "totalChecks": 9, "perUse": 3, "lockSec": 4, "detect": "HIGH",   "visibleRangeM": null },
+    "SMART_WATCH":       { "totalChecks": 6, "perUse": 2, "lockSec": 3, "detect": "MEDIUM", "visibleRangeM": 5 },
+    "ERASER_CAMERA":     { "totalChecks": 4, "perUse": 1, "lockSec": 3, "detect": "LOW",    "visibleRangeM": 1 },
+    "WIRELESS_EARPHONE": { "totalChecks": 5, "perUse": 1, "lockSec": 2, "detect": "SOUND",  "visibleRangeM": null, "enabled": false }
+  },
+  "proctor": {
+    "moveSpeedMps": 3.0,
+    "fovDeg": 90,
+    "inspectHoldSec": 2,
+    "averageRevealIntervalSec": 10,
+    "swatter": {
+      "maxAttempts": 3,
+      "winOnSuccessCount": 3,
+      "successTargetDelta": 10,
+      "failTargetDelta": -5,
+      "failStunSec": 3
+    },
+    "detector": {
+      "maxUses": 3,
+      "revealSec": 2,
+      "missTargetDelta": -3
+    }
+  }
+}

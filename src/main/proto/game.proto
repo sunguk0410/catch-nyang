@@ -1,0 +1,266 @@
+syntax = "proto3";
+
+package catchnyang;
+
+option java_package = "com.catchnyang.proto";
+option java_multiple_files = true;
+
+// 좌표: 교실 바닥 평면 (m). x = 좌우, z = 앞뒤. 교탁(감독관 시작점)은 +z 쪽.
+// 시간: *_ms 는 판 시작(매칭) 기준 게임 시간 또는 남은 시간 (ms).
+// 자리(seat): 0..8, 문항(question): 0..19. -1 = 없음/숨김.
+
+// ============ 공통 ============
+
+enum Role {
+  ROLE_UNSPECIFIED = 0;
+  CAT = 1;      // 냥이
+  PROCTOR = 2;  // 감독관
+}
+
+enum ToolType {
+  TOOL_UNSPECIFIED = 0;  // 도구 없음 (파괴됨) 또는 숨김
+  AI_GLASSES = 1;
+  SMART_WATCH = 2;
+  ERASER_CAMERA = 3;
+  WIRELESS_EARPHONE = 4;
+}
+
+enum Phase {
+  PHASE_UNSPECIFIED = 0;
+  PREPARE = 1;  // 시작 전 준비 시간
+  PLAYING = 2;
+  ENDED = 3;
+}
+
+enum EndReason {
+  END_REASON_UNSPECIFIED = 0;
+  AVG_REACHED = 1;  // 시간 종료, 평균 >= 목표 → 냥이 승
+  AVG_FAILED = 2;   // 시간 종료, 평균 < 목표 → 감독관 승
+  CATCH_3 = 3;      // 적발 3회 → 감독관 즉시 승
+  DISCONNECT = 4;   // 한쪽 이탈 (재접속 유예 초과 포함)
+}
+
+// OMR 한 칸
+enum Mark {
+  MARK_EMPTY = 0;  // 아직 안 옮겨 적음
+  MARK_O = 1;
+  MARK_X = 2;
+}
+
+// 거절 이유 (서버 ActionResult 와 같은 이름)
+enum RejectReason {
+  REJECT_UNSPECIFIED = 0;
+  OK = 1;            // (거절에는 안 쓰임)
+  WRONG_PHASE = 2;   // 지금 단계에서 못 하는 행동
+  STUNNED = 3;       // 기절·경직 중
+  BUSY = 4;          // 도구 사용·마킹 중
+  COOLDOWN = 5;      // 빙의 쿨타임
+  INVALID = 6;       // 잘못된 인자 / 다른 역할의 행동
+  NOT_KNOWN = 7;     // AI 로 확인 안 한 문항
+  NO_CHANGE = 8;     // 이미 정답
+  NO_USES_LEFT = 9;  // 남은 횟수 없음
+  NO_TOOL = 10;      // 빙의한 학생이 도구 없음
+  OUT_OF_RANGE = 11; // 학생 바로 앞이 아님
+  RATE_LIMITED = 12; // 입력이 너무 많아 버려짐
+}
+
+message Vec2 { float x = 1; float z = 2; }
+
+// ============ 클라 -> 서버 ============
+
+message ClientMessage {
+  // 클라 입력 순번 (1부터 증가). 게임 입력이면 처리된 뒤 GameTick.ack_seq 로 돌아옴 (예측 보정용)
+  uint32 seq = 1;
+  oneof payload {
+    // 로비
+    JoinQueue join_queue = 10;
+    CancelQueue cancel_queue = 11;
+    CreateRoom create_room = 12;
+    JoinRoom join_room = 13;
+    Reconnect reconnect = 14;
+    Ping ping = 15;
+
+    // 게임 중 — 냥이
+    Possess possess = 20;
+    UseTool use_tool = 21;
+    Remark remark = 22;
+    // 게임 중 — 감독관
+    ProctorMove proctor_move = 23;
+    Swat swat = 24;
+    Detect detect = 25;
+    // 게임 중 — 공통
+    LeaveMatch leave_match = 26;
+  }
+}
+
+message JoinQueue { string nickname = 1; }     // 랜덤 매칭 대기열 (FIFO)
+message CancelQueue {}                          // 대기열 취소 / 만든 방 코드 닫기
+message CreateRoom { string nickname = 1; }    // 방 코드 발급 → 친구가 JoinRoom
+message JoinRoom { string nickname = 1; string room_code = 2; }
+message Reconnect { string session_token = 1; } // 끊긴 뒤 유예 시간 안에 새 연결로
+message Ping { int64 client_time_ms = 1; }
+
+message Possess { uint32 seat = 1; }            // 다른 학생으로 빙의 이동
+message UseTool { repeated uint32 questions = 1; } // 빙의한 학생 도구로 문항 확인
+message Remark { uint32 question = 1; }          // OMR 한 칸 정답으로 고치기
+
+// 감독관 이동 입력 (방향, 길이 ≤ 1) + 바라보는 방향. 바뀔 때마다 보내면 됨.
+// face 가 (0,0) 이면 시선은 안 바꿈. 이동은 (0,0) 이면 멈춤.
+message ProctorMove { float dx = 1; float dz = 2; float face_x = 3; float face_z = 4; }
+message Swat {}     // 파리채 (바로 앞 학생)
+message Detect {}   // 전파 탐지기
+message LeaveMatch {} // 기권 (상대 승리)
+
+// ============ 서버 -> 클라 ============
+
+message ServerMessage {
+  oneof payload {
+    // 로비
+    QueueJoined queue_joined = 10;
+    RoomCreated room_created = 11;
+    MatchFound match_found = 12;
+    Pong pong = 13;
+    ErrorMessage error = 14;
+    QueueCancelled queue_cancelled = 15;
+    Reconnected reconnected = 16;
+    OpponentConnection opponent_connection = 17;
+
+    // 게임 중
+    Snapshot snapshot = 20;
+    GameTick tick = 21;
+  }
+}
+
+message QueueJoined {}
+message QueueCancelled {}
+message RoomCreated { string room_code = 1; }
+
+// 매칭 성사. 바로 뒤에 Snapshot 이 옴
+message MatchFound {
+  string room_id = 1;
+  Role my_role = 2;
+  string opponent_nickname = 3;
+  string session_token = 4;     // 재접속용 일회용 토큰 (쓰면 새 토큰을 다시 줌)
+  uint32 prepare_seconds = 5;   // 준비 시간
+  uint32 reconnect_grace_seconds = 6; // 끊긴 뒤 이 시간 안에 Reconnect 안 하면 패배
+}
+
+// 재접속 성공. 바로 뒤에 Snapshot 이 옴
+message Reconnected {
+  string room_id = 1;
+  Role my_role = 2;
+  string opponent_nickname = 3;
+  string session_token = 4;     // 새 일회용 토큰
+}
+
+// 상대 연결 상태 변화 (끊김 → grace_ms 안에 안 돌아오면 내 승리)
+message OpponentConnection { bool connected = 1; uint32 grace_ms = 2; }
+
+message Pong { int64 client_time_ms = 1; int64 server_time_ms = 2; }
+
+// code: BAD_MESSAGE, BAD_NICKNAME, BAD_STATE, ROOM_NOT_FOUND, BAD_TOKEN, NOT_IN_MATCH
+message ErrorMessage { string code = 1; string message = 2; }
+
+// ---------- 게임 중: 전체 상태 ----------
+
+// 매칭 직후·재접속 때. 받으면 클라 상태를 통째로 갈아끼움.
+// 같은 tick 의 GameTick 이 먼저 오고 Snapshot 이 뒤에 옴 (Snapshot 이 최신).
+message Snapshot {
+  Role my_role = 1;
+  Phase phase = 2;
+  uint32 match_time_ms = 3;
+  uint32 remaining_ms = 4;        // 현재 단계 남은 시간
+  int32 target = 5;               // 목표 평균
+  uint32 catch_successes = 6;     // 감독관 적발 성공 횟수
+  ProctorState proctor = 7;
+  repeated Vec2 seats = 8;        // 자리 번호 순 책상 위치
+  uint32 question_count = 9;
+  string rule_version = 10;
+  CatView cat = 11;               // 냥이에게만
+  ProctorView proctor_view = 12;  // 감독관에게만
+}
+
+message CatView {
+  int32 seat = 1;                 // 빙의 중인 자리, -1 = 시작 전·기절 중
+  bool stunned = 2;
+  uint32 stunned_ms = 3;          // 기절 남은 시간
+  uint32 possess_cooldown_ms = 4; // 빙의 쿨타임 남은 시간
+  map<uint32, bool> known = 5;    // 확인한 문항 → 정답 (O=true)
+  float live_average = 6;         // 실시간 반 평균
+  bool busy = 7;                  // 도구 사용·마킹 중
+  StudentDetail current = 8;      // 빙의 중인 학생
+  repeated ToolType tools = 9;    // 자리별 지참 도구
+}
+
+message ProctorView {
+  float visible_average = 1;      // 마지막으로 공개된 반 평균 (10초마다)
+  uint32 swats_left = 2;
+  uint32 detectors_left = 3;
+  uint32 stunned_ms = 4;          // 헛손질 경직 남은 시간
+  int32 inspecting_seat = 5;      // 검사 중인 자리, -1 = 없음
+  StudentDetail inspecting = 6;
+}
+
+message ProctorState { Vec2 position = 1; Vec2 facing = 2; }
+
+// 학생 한 명의 시험지·OMR 전체
+message StudentDetail {
+  uint32 seat = 1;
+  repeated bool paper = 2;        // 시험지 연필 답 (O=true)
+  repeated Mark omr = 3;
+  ToolType tool = 4;              // 감독관에겐 항상 TOOL_UNSPECIFIED
+  uint32 tool_checks_left = 5;    // 감독관에겐 항상 0
+}
+
+// ---------- 게임 중: tick 묶음 (변경분) ----------
+
+// 보낼 게 있는 tick 마다 하나. 없어도 1초에 한 번은 옴 (시간 동기화).
+message GameTick {
+  Phase phase = 1;
+  uint32 match_time_ms = 2;
+  uint32 remaining_ms = 3;
+  uint32 ack_seq = 4;              // 서버가 처리한 내 마지막 입력 seq
+  repeated GameEvent events = 5;   // 일어난 순서대로
+  repeated Rejected rejected = 6;  // 거절된 내 입력
+  ProctorState proctor = 7;        // 감독관 위치·시선이 바뀌었을 때만
+  optional float live_average = 8; // 냥이만, 바뀌었을 때만
+  repeated StudentDetail students = 9; // 냥이: 빙의한 학생, 감독관: 검사 시작한 학생
+}
+
+message Rejected { uint32 seq = 1; RejectReason reason = 2; }
+
+message GameEvent {
+  oneof kind {
+    PhaseChanged phase_changed = 1;
+    Possessed possessed = 2;
+    ToolStarted tool_started = 3;
+    ToolFinished tool_finished = 4;
+    ToolDestroyed tool_destroyed = 5;
+    RemarkStarted remark_started = 6;
+    OmrMarked omr_marked = 7;
+    InspectReady inspect_ready = 8;
+    CatchResult catch_result = 9;
+    CatRelocated cat_relocated = 10;
+    DetectorResult detector_result = 11;
+    TargetChanged target_changed = 12;
+    AverageRevealed average_revealed = 13;
+    MatchEnded match_ended = 14;
+  }
+}
+
+message PhaseChanged { Phase phase = 1; }
+message Possessed { uint32 seat = 1; }                 // 빙의 순간 움찔 (둘 다)
+message ToolStarted { ToolType tool = 1; uint32 seat = 2; } // 감독관에겐 시야·거리 안일 때만
+message ToolFinished { ToolType tool = 1; uint32 seat = 2; map<uint32, bool> revealed = 3; } // 냥이만
+message ToolDestroyed { ToolType tool = 1; uint32 seat = 2; }
+// 지우고 다시 마킹하는 손동작. 감독관에겐 question=-1, by_cat=false 로 숨겨짐
+message RemarkStarted { uint32 seat = 1; int32 question = 2; bool by_cat = 3; }
+// 냥이: 빙의한 학생 것만, 감독관: 검사 중인 학생 것만
+message OmrMarked { uint32 seat = 1; uint32 question = 2; Mark value = 3; }
+message InspectReady { uint32 seat = 1; }              // 감독관만
+message CatchResult { uint32 seat = 1; bool success = 2; }
+message CatRelocated { uint32 seat = 1; }              // 냥이만 (시작 자리·기절 후 튕긴 자리)
+message DetectorResult { bool hit = 1; int32 seat = 2; } // hit 이면 seat 노출
+message TargetChanged { int32 target = 1; }
+message AverageRevealed { float average = 1; }          // 감독관만
+message MatchEnded { Role winner = 1; EndReason reason = 2; float final_average = 3; int32 final_target = 4; }
