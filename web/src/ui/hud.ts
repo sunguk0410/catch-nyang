@@ -339,7 +339,8 @@ export class Hud {
     const el = h('div', { class: 'panel bl' },
       h('div', { class: 'panel-title', text: '살피기' }),
       h('div', { class: 'row' }, ...btns),
-      h('div', { class: 'hint', text: '화면을 끌어서 고개 돌리기 · 감독관에겐 안 보여요' }));
+      h('div', { class: 'hint', text: '화면을 끌어서 고개 돌리기 · 감독관에겐 안 보여요' }),
+      this.sensitivitySlider());
     return {
       el,
       update: () => modes.forEach(([m], i) => toggleClass(btns[i], 'active', this.scene.lookMode === m)),
@@ -448,6 +449,7 @@ export class Hud {
       h('div', { class: 'panel-title', text: '조작' }),
       h('div', { class: 'hint' }, h('kbd', { text: 'WASD' }), ' 이동 · ', h('kbd', { text: '마우스' }), ' 시선'),
       h('div', { class: 'hint', text: '학생 바로 앞에 2초 서 있으면 시험지·OMR 검사' }),
+      this.sensitivitySlider(),
       lockHint);
     return { el, update: () => show(lockHint, !document.pointerLockElement) };
   }
@@ -475,6 +477,19 @@ export class Hud {
         if (st) panel.update(`${seatLabel(st.seat)}번 학생 검사`, st);
       },
     };
+  }
+
+  /** 마우스 감도 (브라우저에 저장, 다음 판에도 유지) */
+  private sensitivitySlider(): HTMLElement {
+    const value = h('span', { class: 'sens-value', text: this.scene.sensitivity.toFixed(2) });
+    const input = h('input', { type: 'range', min: '0.2', max: '2', step: '0.05', value: String(this.scene.sensitivity), class: 'sens-range' });
+    input.addEventListener('input', () => {
+      this.scene.setSensitivity(Number(input.value));
+      setText(value, this.scene.sensitivity.toFixed(2));
+    });
+    // 슬라이더를 만지다 키 입력(WASD 등)이 슬라이더로 가지 않게
+    input.addEventListener('change', () => input.blur());
+    return h('label', { class: 'sens' }, h('span', { text: '마우스 감도' }), input, value);
   }
 
   private crosshair() {

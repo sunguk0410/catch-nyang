@@ -17,6 +17,11 @@ export interface SceneActions {
 }
 
 /** 학생마다 다른 리본·머리핀 색 (구분용) */
+/** 마우스 감도 1.0 일 때 1픽셀당 회전량. 실제 = 이 값 × sensitivity (설정에서 조절, 기본 1.0) */
+const PROCTOR_LOOK_RAD_PER_PX = 0.0011;
+const CAT_LOOK_DEG_PER_PX = 0.12;
+const SENSITIVITY_KEY = 'catchnyang.sensitivity';
+
 const HAND_POS = { x: 0.36, y: -0.34, z: -0.52 };
 const HAND_ROT = { x: -0.6, y: 0.1, z: 0.28 };
 
@@ -42,6 +47,9 @@ export class GameScene {
   private readonly unsubs: (() => void)[] = [];
 
   private role: Role = Role.UNSPECIFIED;
+
+  /** 마우스 감도 배율 (0.2 ~ 2.0). 브라우저에 저장 */
+  sensitivity = readSensitivity();
 
   // 냥이 시선
   lookMode: LookMode = 'center';
@@ -197,6 +205,15 @@ export class GameScene {
     dir.y = 0;
     if (to.lengthSq() < 0.01) return true;
     return dir.normalize().angleTo(to.normalize()) <= deg(CFG.cat.fovDeg / 2);
+  }
+
+  setSensitivity(v: number): void {
+    this.sensitivity = Math.min(2, Math.max(0.2, v));
+    try {
+      localStorage.setItem(SENSITIVITY_KEY, String(this.sensitivity));
+    } catch {
+      // 저장 못 해도 이번 판엔 적용
+    }
   }
 
   setLookMode(m: LookMode): void {
@@ -388,13 +405,14 @@ export class GameScene {
     });
     el.addEventListener('pointermove', (ev) => {
       if (this.role === Role.PROCTOR && document.pointerLockElement === el) {
-        this.yaw -= ev.movementX * 0.0022;
-        this.pitch = THREE.MathUtils.clamp(this.pitch - ev.movementY * 0.0022, -1.2, 1.0);
+        const k = PROCTOR_LOOK_RAD_PER_PX * this.sensitivity;
+        this.yaw -= ev.movementX * k;
+        this.pitch = THREE.MathUtils.clamp(this.pitch - ev.movementY * k, -1.2, 1.0);
       } else if (this.role === Role.CAT && this.dragging) {
         this.dragMoved += Math.abs(ev.movementX) + Math.abs(ev.movementY);
         const [lo, hi] = lookRange(this.lookMode);
-        this.lookYaw = THREE.MathUtils.clamp(this.lookYaw - ev.movementX * 0.15, lo, hi);
-        this.lookPitch = THREE.MathUtils.clamp(this.lookPitch - ev.movementY * 0.12, -40, 15);
+        this.lookYaw = THREE.MathUtils.clamp(this.lookYaw - ev.movementX * CAT_LOOK_DEG_PER_PX * this.sensitivity, lo, hi);
+        this.lookPitch = THREE.MathUtils.clamp(this.lookPitch - ev.movementY * CAT_LOOK_DEG_PER_PX * 0.8 * this.sensitivity, -40, 15);
       }
     });
     el.addEventListener('pointerup', (ev) => {
@@ -459,6 +477,15 @@ export class GameScene {
   /** 역할이 정해진 뒤 시야각을 다시 계산하려고 앱이 부름 */
   refreshProjection(): void {
     this.resize();
+  }
+}
+
+function readSensitivity(): number {
+  try {
+    const v = Number(localStorage.getItem(SENSITIVITY_KEY));
+    return v >= 0.2 && v <= 2 ? v : 1;
+  } catch {
+    return 1;
   }
 }
 
